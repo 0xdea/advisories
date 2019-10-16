@@ -4,14 +4,15 @@
 > "Testing can prove the presence of bugs, but not their absence." -- Edsger W. Dijkstra
 
 ## OpenSSH
-* **2003-01-openssh**. OpenSSH/PAM delay information disclosure vulnerability (CVE-2003-0190).
+* [**2003-01-openssh**](https://github.com/0xdea/advisories/blob/master/2003-01-openssh.txt). OpenSSH/PAM delay information disclosure vulnerability (CVE-2003-0190).
 * [**CVE-2006-5229**](https://www.securityfocus.com/archive/1/448025/100/0/threaded). OpenSSH information disclosure via timing leak.
 
 ## Linux
 * [**CVE-2006-1242**](https://www.securityfocus.com/archive/1/427622/100/0/threaded). Linux kernel IP ID information disclosure weakness.
 
 ## Solaris
-* **2019-01-cde-dtprintinfo**. Local privilege escalation via CDE dtprintinfo (CVE-2019-2832).
+* [**2019-01-cde-dtprintinfo**](https://github.com/0xdea/advisories/blob/master/2019-01-cde-dtprintinfo.txt). Local privilege escalation via CDE dtprintinfo (CVE-2019-2832).
+* [**2019-02-solaris-xscreensaver**](https://github.com/0xdea/advisories/blob/master/2019-02-solaris-xscreensaver.txt). Local privilege escalation via xscreensaver (CVE-2019-3010).
 
 ## Illumos
 * [**smbfs/umount**](https://www.illumos.org/issues/11618). Buffer overflow in smbfs/umount.
