@@ -93,4 +93,4 @@ can be downloaded from:
 
 https://github.com/0xdea/exploits/blob/master/solaris/raptor_xscreensaver
 
-Copyright (c) 2019 @Mediaservice.net. All rights reserved.
+Copyright (c) 2019 Marco Ivaldi and @Mediaservice.net. All rights reserved.
