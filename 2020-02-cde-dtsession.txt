@@ -1,0 +1,112 @@
+@Mediaservice.net Security Advisory #2020-02 (last updated on 2020-01-15)
+
+         Title:	Local privilege escalation via CDE dtsession
+   Application: Common Desktop Environment 2.3.1 and earlier
+		Common Desktop Environment 1.6 and earlier
+     Platforms:	Oracle Solaris 10 1/13 (Update 11) and earlier
+		Other platforms are potentially affected (see below)
+   Description:	A local attacker can gain root privileges by exploiting a
+		buffer overflow in CDE dtsession
+        Author:	Marco Ivaldi <marco.ivaldi@mediaservice.net>
+ Vendor Status:	Oracle <secalert_us@oracle.com> notified on 2019-11-13
+		CERT/CC notified on 2019-12-09 (tracking VU#308289)
+      CVE Name:	CVE-2020-2696
+   CVSS Vector:	CVSS:3.0/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H (Base Score: 8.8)
+    References: https://github.com/0xdea/advisories/blob/master/2020-02-cde-dtsession.txt
+		https://www.oracle.com/security-alerts/cpujan2020.html
+		https://sourceforge.net/p/cdesktopenv/wiki/Home/
+		https://www.oracle.com/technetwork/server-storage/solaris10/
+		https://www.mediaservice.net/
+		https://0xdeadbeef.info/
+
+1. Abstract
+
+A buffer overflow in the CheckMonitor() function in the Common Desktop
+Environment 2.3.1 and earlier and 1.6 and earlier, as distributed with Oracle
+Solaris 10 1/13 (Update 11) and earlier, allows local users to gain root
+privileges via a long palette name passed to dtsession in a malicious
+.Xdefaults file.
+
+Note that Oracle Solaris CDE is based on the original CDE 1.x train, which is
+different from the CDE 2.x codebase that was later open sourced. Most notably,
+the vulnerable buffer in the Oracle Solaris CDE is stack-based, while in the
+open source version it is heap-based.
+
+2. Example Attack Session.
+
+bash-3.2$ cat /etc/release
+                    Oracle Solaris 10 1/13 s10x_u11wos_24a X86
+  Copyright (c) 1983, 2013, Oracle and/or its affiliates. All rights reserved.
+                            Assembled 17 January 2013
+bash-3.2$ uname -a
+SunOS nostalgia 5.10 Generic_147148-26 i86pc i386 i86pc
+bash-3.2$ id
+uid=54322(raptor) gid=1(other)
+bash-3.2$ gcc raptor_dtsession_ipa.c -o raptor_dtsession_ipa -Wall
+bash-3.2$ ./raptor_dtsession_ipa 192.168.1.1:0
+raptor_dtsession_ipa.c - CDE dtsession LPE for Solaris/Intel
+Copyright (c) 2019-2020 Marco Ivaldi <raptor@0xdeadbeef.info>
+
+Using SI_PLATFORM       : i86pc (5.10)
+Using stack base        : 0x8047fff
+Using rwx_mem address   : 0xfeffa004
+Using payload address   : 0x8047dff
+Using strcpy() address  : 0xfefe26a0
+
+# id
+uid=0(root) gid=1(other)
+
+3. Affected Platforms.
+
+All platforms shipping the Common Desktop Environment are potentially affected.
+This includes:
+
+* Oracle Solaris 10 1/13 (Update 11) and earlier [default installation]
+
+According to the CDE Wiki, the following platforms are officially supported:
+
+* All Official Ubuntu variants 12.04 - 18.04
+* Debian 6, 7, 8, 9
+* Fedora 17 at least
+* Archlinux
+* Red Hat
+* Slackware 14.0
+* OpenBSD
+* NetBSD
+* FreeBSD 9.2, 10.x, 11.x
+* openSUSE Tumbleweed (gcc7)
+* openSUSE Leap 4.2 (gcc4)
+* SUSE 12 SP3 (gcc4)
+* Solaris, OpenIndiana
+
+4. Fix.
+
+The maintainers of the open source CDE 2.x version have issued the following
+patches for this vulnerability:
+https://sourceforge.net/p/cdesktopenv/mailman/message/36900154/
+https://sourceforge.net/p/cdesktopenv/code/ci/6b32246d06ab16fd7897dc344db69d0957f3ae08/
+
+Oracle, which maintains a different CDE codebase based on the 1.x train, has
+assigned the tracking# S1231688 and has released a fix for all affected and
+supported versions of Solaris in their Critical Patch Update (CPU) of January
+2020.
+
+As a workaround, it is also possible to remove the setuid bit from the
+vulnerable executable as follows (note that this might prevent it from working
+properly):
+
+bash-3.2# chmod -s /usr/dt/bin/dtsession
+
+Please note that during the audit many other potentially exploitable bugs have
+surfaced in dtsession and in the Common Desktop Environment in general.
+Therefore, removing the setuid bit from all CDE binaries is recommended,
+regardless of patches released by vendors.
+
+5. Proof of Concept.
+
+An exploit for Oracle Solaris 10 1/13 (Update 11) Intel has been developed as a
+proof of concept. It can be downloaded from:
+
+https://github.com/0xdea/exploits/blob/master/solaris/raptor_dtsession_ipa.c
+
+Copyright (c) 2020 Marco Ivaldi and @Mediaservice.net. All rights reserved.

