@@ -103,7 +103,7 @@ GitHub (see commit "30352568 problem in X11/XCLIENTS"):
 https://github.com/oracle/solaris-userland/commit/0b48514166d1fedf21c75a2c1af2afe55e087f23
 
 OpenIndiana's patch is available in the oi-userland repository on GitHub (see
-commit "xlock: Sync with solaris-userland (security) #5421):
+commit "xlock: Sync with solaris-userland (security) #5421"):
 https://github.com/OpenIndiana/oi-userland/pull/5421/commits/dd92fe1f71bd25432a3b7559717d23047099437f
 
 As a temporary workaround, it is also possible to remove the setuid bit from
