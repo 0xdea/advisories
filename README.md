@@ -13,6 +13,8 @@
 ## Solaris
 * [**2019-01-cde-dtprintinfo**](https://github.com/0xdea/advisories/blob/master/2019-01-cde-dtprintinfo.txt). Local privilege escalation via CDE dtprintinfo (CVE-2019-2832).
 * [**2019-02-solaris-xscreensaver**](https://github.com/0xdea/advisories/blob/master/2019-02-solaris-xscreensaver.txt). Local privilege escalation via xscreensaver (CVE-2019-3010).
+* [**2020-01-solaris-xlock**](https://github.com/0xdea/advisories/blob/master/2020-01-solaris-xlock.txt). Low impact information disclosure via Solaris xlock (CVE-2020-2656).
+* [**2020-02-cde-dtsession**](https://github.com/0xdea/advisories/blob/master/2020-02-cde-dtsession.txt). Local privilege escalation via CDE dtsession (CVE-2020-2696).
 
 ## Illumos
 * [**smbfs/umount**](https://www.illumos.org/issues/11618). Buffer overflow in smbfs/umount.
