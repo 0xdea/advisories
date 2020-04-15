@@ -6,7 +6,7 @@
 		Oracle Solaris 10 (confirmed on 10 1/13 X86)
 		Other platforms are potentially affected (see below)
    Description:	A difficult to exploit heap-based buffer overflow in setuid
-		root whodo and w binaries distribuited with Solaris allows
+		root whodo and w binaries distributed with Solaris allows
 		local users to corrupt memory and potentially execute arbitrary
 		code in order to escalate privileges
         Author:	Marco Ivaldi <marco.ivaldi@mediaservice.net>
