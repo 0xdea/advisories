@@ -24,7 +24,7 @@
 1. Abstract.
 
 A difficult to exploit heap-based buffer overflow in setuid root whodo and w
-binaries distribuited with Solaris allows local users to corrupt memory and
+binaries distributed with Solaris allows local users to corrupt memory and
 potentially execute arbitrary code in order to escalate privileges.
 
 2. Example Attack Session.
