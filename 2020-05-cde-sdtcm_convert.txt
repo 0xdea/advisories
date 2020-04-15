@@ -1,0 +1,94 @@
+@Mediaservice.net Security Advisory #2020-05 (last updated on 2020-04-15)
+
+         Title:	Local privilege escalation via CDE sdtcm_convert
+   Application: Common Desktop Environment 1.6 and earlier
+     Platforms:	Oracle Solaris 10 1/13 (Update 11) and earlier
+		Other platforms are potentially affected (see below)
+   Description:	A local attacker can gain root privileges by exploiting a
+		buffer overflow in CDE sdtcm_convert
+        Author:	Marco Ivaldi <marco.ivaldi@mediaservice.net>
+ Vendor Status:	Oracle <secalert_us@oracle.com> notified on 2019-12-08
+		CERT/CC notified on 2019-12-09 (tracking VU#308289)
+      CVE Name:	CVE-2020-2944
+   CVSS Vector:	CVSS:3.0/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H (Base Score: 8.8)
+    References: https://github.com/0xdea/advisories/blob/master/2020-05-cde-sdtcm_convert.txt
+		https://www.oracle.com/security-alerts/cpuapr2020.html
+		https://www.oracle.com/technetwork/server-storage/solaris10/
+		https://www.mediaservice.net/
+		https://0xdeadbeef.info/
+
+1. Abstract.
+
+A buffer overflow in the _SanityCheck() function in the Common Desktop
+Environment version distributed with Oracle Solaris 10 1/13 (Update 11) and
+earlier allows local users to gain root privileges via a long calendar name or
+calendar owner passed to sdtcm_convert in a malicious calendar file.
+
+The open source version of CDE (based on the CDE 2.x codebase) is not affected,
+because it does not ship the vulnerable program.
+
+2. Example Attack Session.
+
+bash-3.2$ cat /etc/release
+                    Oracle Solaris 10 1/13 s10x_u11wos_24a X86
+  Copyright (c) 1983, 2013, Oracle and/or its affiliates. All rights reserved.
+                            Assembled 17 January 2013
+bash-3.2$ uname -a
+SunOS nostalgia 5.10 Generic_147148-26 i86pc i386 i86pc
+bash-3.2$ id
+uid=54322(raptor) gid=1(other)
+bash-3.2$ gcc raptor_sdtcm_conv.c -o raptor_sdtcm_conv -Wall
+bash-3.2$ ./raptor_sdtcm_conv
+raptor_sdtcm_conv.c - CDE sdtcm_convert LPE for Solaris/Intel
+Copyright (c) 2019-2020 Marco Ivaldi <raptor@0xdeadbeef.info>
+
+Using SI_PLATFORM       : i86pc (5.10)
+Using SI_HOSTNAME       : nostalgia
+Using stack base        : 0x8047fff
+Using rwx_mem address   : 0xfeffa004
+Using payload address   : 0x8047dff
+Using strcpy() address  : 0xfefe26a0
+
+Preparing the evil calendar file... Done.
+Exploiting... Please answer "n" when prompted.
+Loading the calendar ...
+[...]
+Do you want to correct it? (Y/N) [Y] n
+# id
+uid=0(root) gid=1(other) egid=12(daemon)
+
+3. Affected Platforms.
+
+All platforms shipping the Common Desktop Environment based on the CDE 1.x
+codebase are potentially affected. This includes:
+
+* Oracle Solaris 10 1/13 (Update 11) and earlier [default installation]
+
+The open source version of CDE (based on the CDE 2.x codebase) is not affected,
+because it does not ship the vulnerable program.
+
+4. Fix.
+
+Oracle has assigned the tracking# S1239395 and has released a fix for all
+affected and supported versions of Solaris in the Critical Patch Update (CPU)
+of April 2020.
+
+As a workaround, it is also possible to remove the setuid bit from the
+vulnerable executable as follows (note that this might prevent it from working
+properly):
+
+bash-3.2# chmod -s /usr/dt/bin/sdtcm_convert
+
+Please note that during the audit many other potentially exploitable bugs have
+surfaced in sdtcm_convert and in the Common Desktop Environment in general.
+Therefore, removing the setuid bit from all CDE binaries is recommended,
+regardless of patches released by vendors.
+
+5. Proof of Concept.
+
+An exploit for Oracle Solaris 10 1/13 (Update 11) Intel has been developed as a
+proof of concept. It can be downloaded from:
+
+https://github.com/0xdea/exploits/blob/master/solaris/raptor_sdtcm_conv.c
+
+Copyright (c) 2020 Marco Ivaldi and @Mediaservice.net. All rights reserved.
