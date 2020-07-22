@@ -130,7 +130,7 @@ additional challenges:
 * Additional security measures such as Address Space Layout Randomization
   (ASLR) might get in the way of reliable exploitation.
 
-Based on this analysis, our conclusion is that this bug not exploitable on
+Based on this analysis, our conclusion is that this bug is not exploitable on
 Solaris 11.x and 10 in order to escalate privileges. That said, as a rule of
 thumb all memory corruption issues have the potential to become serious
 security vulnerabilities until otherwise proven. For instance, it might very
