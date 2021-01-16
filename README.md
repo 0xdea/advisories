@@ -1,7 +1,13 @@
 # advisories
-[![](https://img.shields.io/badge/license-MIT%20License-red.svg)](https://opensource.org/licenses/MIT) [![](https://img.shields.io/badge/twitter-%400xdea-blue.svg)](https://twitter.com/0xdea)
+[![](https://img.shields.io/github/stars/0xdea/advisories.svg?color=yellow)](https://github.com/0xdea/advisories)
+[![](https://img.shields.io/github/forks/0xdea/advisories.svg?color=green)](https://github.com/0xdea/advisories)
+[![](https://img.shields.io/github/watchers/0xdea/advisories.svg?color=red)](https://github.com/0xdea/advisories)
+[![](https://img.shields.io/badge/license-MIT%20License-red.svg?color=lightgray)](https://opensource.org/licenses/MIT) 
+[![](https://img.shields.io/badge/twitter-%400xdea-blue.svg)](https://twitter.com/0xdea)
 
-> "Testing can prove the presence of bugs, but not their absence." -- Edsger W. Dijkstra
+> "Testing can prove the presence of bugs, but not their absence." 
+>
+> -- Edsger W. Dijkstra
 
 ## OpenSSH
 * [**2003-01-openssh**](https://github.com/0xdea/advisories/blob/master/2003-01-openssh.txt). OpenSSH/PAM delay information disclosure vulnerability (CVE-2003-0190).
