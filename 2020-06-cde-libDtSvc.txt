@@ -2,7 +2,7 @@
 
          Title:	Stack-based buffer overflow in CDE libDtSvc
    Application: Common Desktop Environment 2.3.1 and earlier
-		Common Desktop Environment 1.6 and earlier2020-06-cde-libDtSvc.txt
+		Common Desktop Environment 1.6 and earlier
      Platforms:	Oracle Solaris 10 1/13 (Update 11) and earlier
 		Other platforms are potentially affected (see below)
    Description:	A difficult to exploit stack-based buffer overflow in the
