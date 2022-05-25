@@ -27,3 +27,6 @@
 
 ## Illumos
 * [**smbfs/umount**](https://www.illumos.org/issues/11618). Buffer overflow in smbfs/umount.
+
+## Zyxel
+* [**HNS-2022-02-zyxel-zysh**](https://github.com/0xdea/advisories/blob/master/HNS-2022-02-zyxel-zysh.txt). Multiple vulnerabilities in Zyxel zysh (CVE-2022-26531, CVE-2022-26532).
