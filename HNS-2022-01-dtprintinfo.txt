@@ -13,9 +13,11 @@
 * CVE IDs:
   * CVE-2022-46285 - Infinite loop on unclosed comments in X.Org libXpm
 * Advisory URLs: 
-  * https://github.com/hnsecurity/vulns/HNS-2022-01-dtprintinfo.txt
+  * https://github.com/hnsecurity/vulns/blob/main/HNS-2022-01-dtprintinfo.txt
   * https://lists.x.org/archives/xorg-announce/2023-January/003312.html
   * https://lists.x.org/archives/xorg-announce/2023-January/003313.html
+* Exploit URLs:
+  * https://github.com/0xdea/exploits/blob/master/solaris/raptor_dtprintlibXmas.c
 
 
 --[ 0 - Table of contents
