@@ -9,10 +9,6 @@
 >
 > -- Edsger W. Dijkstra
 
-## OpenSSH
-* [**2003-01-openssh**](https://github.com/0xdea/advisories/blob/master/2003-01-openssh.txt). OpenSSH/PAM delay information disclosure vulnerability (CVE-2003-0190).
-* [**CVE-2006-5229**](https://www.securityfocus.com/archive/1/448025/100/0/threaded). OpenSSH information disclosure via timing leak.
-
 ## Linux
 * [**CVE-2006-1242**](https://www.securityfocus.com/archive/1/427622/100/0/threaded). Linux kernel IP ID information disclosure weakness.
 
@@ -24,9 +20,17 @@
 * [**2020-05-cde-sdtcm_convert**](https://github.com/0xdea/advisories/blob/master/2020-05-cde-sdtcm_convert.txt). Local privilege escalation via CDE sdtcm_convert (CVE-2020-2944).
 * [**2020-06-cde-libDtSvc**](https://github.com/0xdea/advisories/blob/master/2020-06-cde-libDtSvc.txt). Stack-based buffer overflow in CDE libDtSvc (CVE-2020-2851).
 * [**2020-07-solaris-whodo-w**](https://github.com/0xdea/advisories/blob/master/2020-07-solaris-whodo-w.txt). Heap-based buffer overflow in Solaris whodo, w commands (CVE-2020-2771).
+* [**HNS-2022-01-dtprintinfo**](https://github.com/0xdea/advisories/blob/master/HNS-2022-01-dtprintinfo.txt). Multiple vulnerabilities in Solaris dtprintinfo and libXm/libXpm.
 
 ## Illumos
 * [**smbfs/umount**](https://www.illumos.org/issues/11618). Buffer overflow in smbfs/umount.
 
 ## Zyxel
 * [**HNS-2022-02-zyxel-zysh**](https://github.com/0xdea/advisories/blob/master/HNS-2022-02-zyxel-zysh.txt). Multiple vulnerabilities in Zyxel zysh (CVE-2022-26531, CVE-2022-26532).
+
+## OpenSSH
+* [**2003-01-openssh**](https://github.com/0xdea/advisories/blob/master/2003-01-openssh.txt). OpenSSH/PAM delay information disclosure vulnerability (CVE-2003-0190).
+* [**CVE-2006-5229**](https://www.securityfocus.com/archive/1/448025/100/0/threaded). OpenSSH information disclosure via timing leak.
+
+## X.Org
+* [**CVE-2022-46285**](https://lists.x.org/archives/xorg-announce/2023-January/003312.html). Infinite loop on unclosed comments handling XPM files in libXpm.
