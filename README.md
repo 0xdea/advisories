@@ -20,7 +20,7 @@
 * [**2020-05-cde-sdtcm_convert**](https://github.com/0xdea/advisories/blob/master/2020-05-cde-sdtcm_convert.txt). Local privilege escalation via CDE sdtcm_convert (CVE-2020-2944).
 * [**2020-06-cde-libDtSvc**](https://github.com/0xdea/advisories/blob/master/2020-06-cde-libDtSvc.txt). Stack-based buffer overflow in CDE libDtSvc (CVE-2020-2851).
 * [**2020-07-solaris-whodo-w**](https://github.com/0xdea/advisories/blob/master/2020-07-solaris-whodo-w.txt). Heap-based buffer overflow in Solaris whodo, w commands (CVE-2020-2771).
-* [**HNS-2022-01-dtprintinfo**](https://github.com/0xdea/advisories/blob/master/HNS-2022-01-dtprintinfo.txt). Multiple vulnerabilities in Solaris dtprintinfo and libXm/libXpm.
+* [**HNS-2022-01-dtprintinfo**](https://github.com/0xdea/advisories/blob/master/HNS-2022-01-dtprintinfo.txt). Multiple vulnerabilities in Solaris dtprintinfo and libXm/libXpm (CVE-2022-46285, CVE-2023-24039, CVE-2023-24040).
 
 ## Illumos
 * [**smbfs/umount**](https://www.illumos.org/issues/11618). Buffer overflow in smbfs/umount.
