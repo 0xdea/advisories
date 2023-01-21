@@ -5,6 +5,7 @@
 * OS: Oracle Solaris 10 (CPU January 2021)
 * Author: Marco Ivaldi <marco.ivaldi@hnsecurity.it>
 * Date: 2023-01-18
+* Last update: 2023-01-21
 * Oracle vulnerability tracking numbers:
   * S1597707 - Arbitrary printer name injection
   * S1597724 - Heap memory disclosure via long printer names
@@ -12,6 +13,8 @@
   * S1597730 - Stack-based buffer overflow in libXm ParseColors
 * CVE IDs:
   * CVE-2022-46285 - Infinite loop on unclosed comments in X.Org libXpm
+  * CVE-2023-24039 - Stack-based buffer overflow in libXm ParseColors
+  * CVE-2023-24040 - Printer name injection and heap memory disclosure
 * Advisory URLs: 
   * https://github.com/hnsecurity/vulns/blob/main/HNS-2022-01-dtprintinfo.txt
   * https://lists.x.org/archives/xorg-announce/2023-January/003312.html
@@ -620,6 +623,9 @@ bash-3.2# chmod -s /usr/dt/bin/dtprintinfo
 	    note 1400676.1, behind the paywall for Oracle's customers with
 	    current support contracts. HN Security published this advisory
 	    and a local privilege escalation exploit.
+2023-01-20: Mitre has assigned CVE-2023-24039 to the buffer overflow in 
+	    libXm and CVE-2023-24040 to the printer name injection and
+	    heap memory disclosure bugs.
 
 
 --[ 8 - References
