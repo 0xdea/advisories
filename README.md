@@ -34,3 +34,6 @@
 
 ## X.Org
 * [**CVE-2022-46285**](https://lists.x.org/archives/xorg-announce/2023-January/003312.html). Infinite loop on unclosed comments handling XPM files in libXpm.
+
+## ISC DHCP
+* [**dhclient**](https://gitlab.isc.org/isc-projects/dhcp/-/issues/280). Format string bug in configuration file handling.
