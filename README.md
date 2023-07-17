@@ -22,9 +22,6 @@
 * [**2020-07-solaris-whodo-w**](https://github.com/0xdea/advisories/blob/master/2020-07-solaris-whodo-w.txt). Heap-based buffer overflow in Solaris whodo, w commands (CVE-2020-2771).
 * [**HNS-2022-01-dtprintinfo**](https://github.com/0xdea/advisories/blob/master/HNS-2022-01-dtprintinfo.txt). Multiple vulnerabilities in Solaris dtprintinfo and libXm/libXpm (CVE-2022-46285, CVE-2023-24039, CVE-2023-24040).
 
-## Illumos
-* [**smbfs/umount**](https://www.illumos.org/issues/11618). Buffer overflow in smbfs/umount.
-
 ## Zyxel
 * [**HNS-2022-02-zyxel-zysh**](https://github.com/0xdea/advisories/blob/master/HNS-2022-02-zyxel-zysh.txt). Multiple vulnerabilities in Zyxel zysh (CVE-2022-26531, CVE-2022-26532).
 
@@ -35,5 +32,6 @@
 ## X.Org
 * [**CVE-2022-46285**](https://lists.x.org/archives/xorg-announce/2023-January/003312.html). Infinite loop on unclosed comments handling XPM files in libXpm.
 
-## ISC DHCP
+## Others
+* [**smbfs/umount**](https://www.illumos.org/issues/11618). Buffer overflow in smbfs/umount.
 * [**dhclient**](https://gitlab.isc.org/isc-projects/dhcp/-/issues/280). Format string bug in configuration file handling.
