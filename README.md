@@ -33,5 +33,5 @@
 * [**CVE-2022-46285**](https://lists.x.org/archives/xorg-announce/2023-January/003312.html). Infinite loop on unclosed comments handling XPM files in libXpm.
 
 ## Others
-* [**smbfs/umount**](https://www.illumos.org/issues/11618). Buffer overflow in smbfs/umount.
-* [**dhclient**](https://gitlab.isc.org/isc-projects/dhcp/-/issues/280). Format string bug in configuration file handling.
+* [**smbfs/umount**](https://www.illumos.org/issues/11618). Buffer overflow in Illumos smbfs/umount.
+* [**dhclient**](https://gitlab.isc.org/isc-projects/dhcp/-/issues/280). Format string bug in ISC DHCP configuration file handling.
