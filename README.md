@@ -25,6 +25,9 @@
 ## Zyxel
 * [**HNS-2022-02-zyxel-zysh**](https://github.com/0xdea/advisories/blob/master/HNS-2022-02-zyxel-zysh.txt). Multiple vulnerabilities in Zyxel zysh (CVE-2022-26531, CVE-2022-26532).
 
+## TBA
+* [**HNS-2023-03-TBA**](). TBA (CVE-2023-3725, CVE-2023-4257, CVE-2023-4259, CVE-2023-4260, CVE-2023-4261, CVE-2023-4262, CVE-2023-4263, CVE-2023-4264, CVE-2023-4265).
+
 ## OpenSSH
 * [**2003-01-openssh**](https://github.com/0xdea/advisories/blob/master/2003-01-openssh.txt). OpenSSH/PAM delay information disclosure vulnerability (CVE-2003-0190).
 * [**CVE-2006-5229**](https://www.securityfocus.com/archive/1/448025/100/0/threaded). OpenSSH information disclosure via timing leak.
