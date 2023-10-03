@@ -38,3 +38,5 @@
 ## Others
 * [**smbfs/umount**](https://www.illumos.org/issues/11618). Buffer overflow in Illumos smbfs/umount.
 * [**dhclient**](https://gitlab.isc.org/isc-projects/dhcp/-/issues/280). Format string bug in ISC DHCP configuration file handling.
+* [**coturn**](https://github.com/coturn/coturn/pulls?q=is%3Apr+0xdea). Security issues in the Coturn TURN server.
+* [**FreeRTOS-Plus-TCP**](https://github.com/FreeRTOS/FreeRTOS-Plus-TCP/pull/1017). Security issues in FreeRTOS (uncredited).
