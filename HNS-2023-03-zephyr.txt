@@ -1,0 +1,1138 @@
+--[ HNS-2023-03 - HN Security Advisory - https://security.humanativaspa.it/
+
+* Title: Multiple vulnerabilities in Zephyr RTOS
+* OS: Zephyr <= 3.4.0, except for:
+  * CVE-2023-4265 that affects Zephyr <= 3.3.0
+  * CVE-2023-4261 that affects Zephyr <= 3.5.0 and will be fixed in a future update
+* Author: Marco Ivaldi <marco.ivaldi@hnsecurity.it>
+* Date: 2023-11-07
+* CVE IDs and severity:
+  * CVE-2023-3725 - High - 7.6 - CVSS:3.1/AV:A/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:H
+  * CVE-2023-4257 - Moderate - 6.8 - CVSS:3.1/AV:A/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:H
+  * CVE-2023-4259 - High - 7.1 - CVSS:3.1/AV:A/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:H
+  * CVE-2023-4260 - Moderate - 6.3 - CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:L/I:L/A:L
+  * CVE-2023-4261 - (unreleased)
+  * CVE-2023-4262 - Moderate - 5.1 - CVSS:3.1/AV:P/AC:L/PR:N/UI:N/S:C/C:L/I:L/A:L
+  * CVE-2023-4263 - High - 7.6 - CVSS:3.1/AV:A/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:H
+  * CVE-2023-4264 - High - 7.1 - CVSS:3.1/AV:A/AC:L/PR:N/UI:N/S:C/C:L/I:L/A:L
+  * CVE-2023-4265 - Moderate - 6.4 - CVSS:3.1/AV:P/AC:L/PR:N/UI:N/S:U/C:L/I:H/A:H
+  * CVE-2023-5139 - Moderate - 4.4 - CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:L
+  * CVE-2023-5184 - High - 7.0 - CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:C/C:L/I:L/A:H
+  * CVE-2023-5753 - Moderate - 6.3 - CVSS:3.1/AV:A/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:L
+* Vendor URL: https://www.zephyrproject.org/
+* Advisory URLs:
+  * https://github.com/zephyrproject-rtos/zephyr/security/advisories/GHSA-2g3m-p6c7-8rr3
+  * https://github.com/zephyrproject-rtos/zephyr/security/advisories/GHSA-853q-q69w-gf5j
+  * https://github.com/zephyrproject-rtos/zephyr/security/advisories/GHSA-gghm-c696-f4j4
+  * https://github.com/zephyrproject-rtos/zephyr/security/advisories/GHSA-gj27-862r-55wh
+  * https://github.com/zephyrproject-rtos/zephyr/security/advisories/GHSA-5954-jcv4-7rvm (unreleased)
+  * https://github.com/zephyrproject-rtos/zephyr/security/advisories/GHSA-56p9-5p3v-hhrc
+  * https://github.com/zephyrproject-rtos/zephyr/security/advisories/GHSA-rf6q-rhhp-pqhf
+  * https://github.com/zephyrproject-rtos/zephyr/security/advisories/GHSA-rgx6-3w4j-gf5j
+  * https://github.com/zephyrproject-rtos/zephyr/security/advisories/GHSA-4vgv-5r6q-r6xh
+  * https://github.com/zephyrproject-rtos/zephyr/security/advisories/GHSA-rhrc-pcxp-4453
+  * https://github.com/zephyrproject-rtos/zephyr/security/advisories/GHSA-8x3p-q3r5-xh9g
+  * https://github.com/zephyrproject-rtos/zephyr/security/advisories/GHSA-hmpr-px56-rvww
+
+
+--[ 0 - Table of contents
+
+1 - Summary
+2 - Background
+3 - Vulnerabilities
+    3.1 - CVE-2023-3725 - Buffer overflow vulnerability in the Zephyr CANbus subsystem
+    3.2 - CVE-2023-4257 - Unchecked user input length in the Zephyr WiFi shell module
+    3.3 - CVE-2023-4259 - Buffer overflow vulnerabilities in the Zephyr eS-WiFi driver
+    3.4 - CVE-2023-4260 - Off-by-one buffer overflow vulnerability in the Zephyr FS subsystem
+    3.5 - CVE-2023-4261 - Buffer overflow vulnerability in the Zephyr IPC subsystem (unreleased)
+    3.6 - CVE-2023-4262 - Buffer overflow vulnerabilities in the Zephyr Mgmt subsystem
+    3.7 - CVE-2023-4263 - Buffer overflow vulnerability in the Zephyr IEEE 802.15.4 driver
+    3.8 - CVE-2023-4264 - Buffer overflow vulnerabilities in the Zephyr Bluetooth subsystem
+    3.9 - CVE-2023-4265 - Two buffer overflow vulnerabilities in Zephyr USB code
+    3.10 - CVE-2023-5139 - Buffer overflow vulnerability in the Zephyr STM32 Crypto driver
+    3.11 - CVE-2023-5184 - Signed to unsigned conversion errors and buffer overflow vulnerabilities in the Zephyr IPM driver
+    3.12 - CVE-2023-5753 - Other buffer overflow vulnerabilities in the Zephyr Bluetooth subsystem
+4 - Affected products
+5 - Remediation
+6 - Disclosure timeline
+7 - Acknowledgements
+8 - References
+
+
+--[ 1 - Summary
+
+"When hackers tell me it's so hard to find bugs, I tell them to stop
+looking for hard bugs." 
+                                                       -- Dave Aitel
+
+The Zephyr Project [1] is an open source collaborative effort sponsored by
+the Linux Foundation. It unites developers and users in building a
+best-in-class, small, scalable, real-time operating system (RTOS) optimized
+for resource-constrained IoT devices, across multiple microcontroller
+architectures.
+
+We reviewed Zephyr's source code hosted on GitHub [2] and identified
+multiple security vulnerabilities that may cause memory corruption. Their
+impacts range from denial of service to potential arbitrary code execution.
+
+
+--[ 2 - Background
+
+While going through the awesome OpenSecurityTraining2 (OST2) Vulns1001 and
+Vulns1002 training courses [3] [4], we discovered the Zephyr Project. It
+immediately picked our interest and therefore we decided to review its
+source code.
+
+During the review, we made heavy use of our Semgrep C/C++ ruleset [5] to
+identify hotspots in code on which to focus our attention. We also took
+advantage of this opportunity to improve our ruleset.
+
+
+--[ 3 - Vulnerabilities
+
+The vulnerabilities resulting from our source code review are briefly
+described in the following sections.
+
+
+--[ 3.1 - CVE-2023-3725 - Buffer overflow vulnerability in the Zephyr CANbus subsystem
+
+We spotted a buffer overflow vulnerability at the following location in the
+Zephyr CANbus subsystem source code:
+
+* /subsys/canbus/isotp/isotp.c
+
+Ineffective size check due to assert and stack-based buffer overflow in
+/subsys/canbus/isotp/isotp.c:
+```c
+static inline int send_sf(struct isotp_send_ctx *ctx)
+{
+	struct can_frame frame = {
+		.flags = ctx->tx_addr.ide != 0 ? CAN_FRAME_IDE : 0,
+		.id = ctx->tx_addr.ext_id
+	};
+	size_t len = get_ctx_data_length(ctx);
+	int index = 0;
+	int ret;
+	const uint8_t *data;
+
+	data = get_data_ctx(ctx);
+	pull_data_ctx(ctx, len);
+
+	if (ctx->tx_addr.use_ext_addr) {
+		frame.data[index++] = ctx->tx_addr.ext_addr;
+	}
+
+	frame.data[index++] = ISOTP_PCI_TYPE_SF | len;
+
+	__ASSERT_NO_MSG(len <= ISOTP_CAN_DL - index);
+	memcpy(&frame.data[index], data, len); /* VULN */
+
+#ifdef CONFIG_ISOTP_ENABLE_TX_PADDING
+	/* AUTOSAR requirement SWS_CanTp_00348 */
+	memset(&frame.data[index + len], 0xCC, ISOTP_CAN_DL - len - index);
+	frame.dlc = ISOTP_CAN_DL;
+#else
+	frame.dlc = len + index;
+#endif
+
+	ctx->state = ISOTP_TX_SEND_SF;
+	ret = can_send(ctx->can_dev, &frame, K_MSEC(ISOTP_A),
+		       send_can_tx_cb, ctx);
+	return ret;
+}
+```
+
+Fixes:
+https://github.com/zephyrproject-rtos/zephyr/pull/61502
+https://github.com/zephyrproject-rtos/zephyr/pull/61516
+https://github.com/zephyrproject-rtos/zephyr/pull/61517
+https://github.com/zephyrproject-rtos/zephyr/pull/61518
+
+See also:
+https://github.com/zephyrproject-rtos/zephyr/security/advisories/GHSA-2g3m-p6c7-8rr3
+
+
+--[ 3.2 - CVE-2023-4257 - Unchecked user input length in the Zephyr WiFi shell module
+
+We spotted two instances of user input with unchecked length at the
+following locations in the Zephyr WiFi shell module source code:
+
+* /subsys/net/l2/wifi/wifi_shell.c
+
+Unchecked user input length in /subsys/net/l2/wifi/wifi_shell.c:
+```c
+static int __wifi_args_to_params(size_t argc, char *argv[],
+				struct wifi_connect_req_params *params)
+{
+	char *endptr;
+	int idx = 1;
+
+	if (argc < 1) {
+		return -EINVAL;
+	}
+
+	/* SSID */
+	params->ssid = argv[0]; /* VULN: unchecked length (should be max 32) */
+	params->ssid_length = strlen(params->ssid);
+
+	/* Channel (optional) */
+	if ((idx < argc) && (strlen(argv[idx]) <= 3)) {
+...
+
+	/* PSK (optional) */
+	if (idx < argc) {
+		params->psk = argv[idx]; /* VULN: unchecked length (should be min 8, max 64) */
+		params->psk_length = strlen(argv[idx]);
+		/* Defaults */
+		params->security = WIFI_SECURITY_TYPE_PSK;
+		params->mfp = WIFI_MFP_OPTIONAL;
+		idx++;
+```
+
+Fixes:
+https://github.com/zephyrproject-rtos/zephyr/pull/60537
+https://github.com/zephyrproject-rtos/zephyr/pull/61383
+
+See also:
+https://github.com/zephyrproject-rtos/zephyr/security/advisories/GHSA-853q-q69w-gf5j
+
+
+--[ 3.3 - CVE-2023-4259 - Buffer overflow vulnerabilities in the Zephyr eS-WiFi driver
+
+We spotted two buffer overflow vulnerabilities at the following locations
+in the Zephyr eS-WiFi driver source code:
+
+* /drivers/wifi/eswifi/eswifi_core.c
+* /drivers/wifi/eswifi/eswifi_shell.c
+
+Off-by-one buffer overflow in /drivers/wifi/eswifi/eswifi_core.c:
+```c
+int eswifi_mgmt_iface_status(const struct device *dev,
+			     struct wifi_iface_status *status)
+{
+	struct eswifi_dev *eswifi = dev->data;
+	struct eswifi_sta *sta = &eswifi->sta;
+
+	/* Update status */
+	eswifi_status_work(&eswifi->status_work.work);
+
+	if (!sta->connected) {
+		status->state = WIFI_STATE_DISCONNECTED;
+		return 0;
+	}
+
+	status->state = WIFI_STATE_COMPLETED;
+	strcpy(status->ssid, sta->ssid); /* VULN: off-by-one (sta->ssid[33] copied over status->ssid[32]) */ 
+	status->ssid_len = strlen(sta->ssid);
+	status->band = WIFI_FREQ_BAND_2_4_GHZ;
+	status->channel = 0;
+...
+```
+
+Static buffer overflow in /drivers/wifi/eswifi/eswifi_shell.c:
+```c
+static int eswifi_shell_atcmd(const struct shell *sh, size_t argc,
+			      char **argv)
+{
+	int i;
+
+	if (eswifi == NULL) {
+		shell_print(sh, "no eswifi device registered");
+		return -ENOEXEC;
+	}
+
+	if (argc < 2) {
+		shell_help(sh);
+		return -ENOEXEC;
+	}
+
+	eswifi_lock(eswifi);
+
+	memset(eswifi->buf, 0, sizeof(eswifi->buf));
+	for (i = 1; i < argc; i++) {
+		strcat(eswifi->buf, argv[i]); /* VULN: static buffer overflow */
+	}
+	strcat(eswifi->buf, "\r");
+
+	shell_print(sh, "> %s", eswifi->buf);
+	eswifi_at_cmd(eswifi, eswifi->buf);
+	shell_print(sh, "< %s", eswifi->buf);
+
+	eswifi_unlock(eswifi);
+
+	return 0;
+}
+```
+
+Fixes:
+https://github.com/zephyrproject-rtos/zephyr/pull/63074
+
+See also:
+https://github.com/zephyrproject-rtos/zephyr/security/advisories/GHSA-gghm-c696-f4j4
+
+
+--[ 3.4 - CVE-2023-4260 - Off-by-one buffer overflow vulnerability in the Zephyr FS subsystem
+
+We spotted an off-by-one buffer overflow vulnerability at the following
+location in the Zephyr FS subsystem source code:
+
+* /subsys/fs/fuse_fs_access.c
+
+If the string passed to the following function via the `path` parameter is
+PATH_MAX chars long (including the NUL terminator), the insecure sprintf()
+function call marked below writes one NUL byte off the stack variable
+`mount_path`:
+```c
+static int fuse_fs_access_readdir(const char *path, void *buf,
+			      fuse_fill_dir_t filler, off_t off,
+			      struct fuse_file_info *fi)
+{
+	struct fs_dir_t dir;
+	struct fs_dirent entry;
+	int err;
+	struct stat stat;
+
+	ARG_UNUSED(off);
+	ARG_UNUSED(fi);
+
+	if (strcmp(path, "/") == 0) {
+		return fuse_fs_access_readmount(buf, filler);
+	}
+
+	fs_dir_t_init(&dir);
+
+	if (is_mount_point(path)) {
+		/* File system API expects trailing slash for a mount point
+		 * directory but FUSE strips the trailing slashes from
+		 * directory names so add it back.
+		 */
+		char mount_path[PATH_MAX];
+
+		sprintf(mount_path, "%s/", path); /* VULN */
+		err = fs_opendir(&dir, mount_path);
+	} else {
+		err = fs_opendir(&dir, path);
+	}
+...
+```
+
+Fixes:
+https://github.com/zephyrproject-rtos/zephyr/pull/63079
+
+See also:
+https://github.com/zephyrproject-rtos/zephyr/security/advisories/GHSA-gj27-862r-55wh
+
+
+--[ 3.5 - CVE-2023-4261 - Buffer overflow vulnerability in the Zephyr IPC subsystem (unreleased)
+
+Since this vulnerability was not fixed in Zephyr RTOS 3.5.0, we are
+withholding details for the time being.
+
+Once a fix is available, the advisory will be published on GitHub at the
+following URL:
+https://github.com/zephyrproject-rtos/zephyr/security/advisories/GHSA-5954-jcv4-7rvm
+
+
+--[ 3.6 - CVE-2023-4262 - Buffer overflow vulnerabilities in the Zephyr Mgmt subsystem
+
+We spotted a few buffer overflow vulnerabilities at the following locations
+in the Zephyr Mgmt subsystem source code:
+
+* /subsys/mgmt/mcumgr/transport/src/smp.c
+* /subsys/mgmt/osdp/src/osdp_cp.c
+
+Buffer overflow in /subsys/mgmt/mcumgr/transport/src/smp.c:
+```c
+void *smp_alloc_rsp(const void *req, void *arg)
+{
+	const struct net_buf *req_nb;
+	struct net_buf *rsp_nb;
+	struct smp_transport *smpt = arg;
+
+	req_nb = req;
+
+	rsp_nb = smp_packet_alloc();
+	if (rsp_nb == NULL) {
+		return NULL;
+	}
+
+	if (smpt->functions.ud_copy) {
+		smpt->functions.ud_copy(rsp_nb, req_nb);
+	} else {
+		memcpy(net_buf_user_data(rsp_nb),
+		       net_buf_user_data((void *)req_nb),
+		       req_nb->user_data_size); /* VULN */
+	}
+
+	return rsp_nb;
+}
+```
+
+Buffer overflow due to assert in /subsys/mgmt/osdp/src/osdp_cp.c:
+```c
+static int cp_build_command(struct osdp_pd *pd, uint8_t *buf, int max_len)
+{
+	struct osdp_cmd *cmd = NULL;
+	int len = 0;
+	int data_off = osdp_phy_packet_get_data_offset(pd, buf);
+#ifdef CONFIG_OSDP_SC_ENABLED
+	uint8_t *smb = osdp_phy_packet_get_smb(pd, buf);
+#endif
+
+	buf += data_off;
+	max_len -= data_off;
+	if (max_len <= 0) {
+		return OSDP_CP_ERR_GENERIC;
+	}
+
+	switch (pd->cmd_id) {
+...
+	case CMD_TEXT:
+		cmd = (struct osdp_cmd *)pd->ephemeral_data;
+		assert_buf_len(CMD_TEXT_LEN + cmd->text.length, max_len); /* VULN: assert */
+		buf[len++] = pd->cmd_id;
+		buf[len++] = cmd->text.reader;
+		buf[len++] = cmd->text.control_code;
+		buf[len++] = cmd->text.temp_time;
+		buf[len++] = cmd->text.offset_row;
+		buf[len++] = cmd->text.offset_col;
+		buf[len++] = cmd->text.length;
+		memcpy(buf + len, cmd->text.data, cmd->text.length); /* VULN: buffer overflow */
+		len += cmd->text.length;
+		break;
+```
+
+Buffer overflows due to assert in /subsys/mgmt/osdp/src/osdp_pd.c:
+```c
+static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
+{
+	int ret = OSDP_PD_ERR_GENERIC;
+	int i, len = 0;
+	struct osdp_cmd *cmd;
+	struct osdp_event *event;
+	int data_off = osdp_phy_packet_get_data_offset(pd, buf);
+#ifdef CONFIG_OSDP_SC_ENABLED
+	uint8_t *smb = osdp_phy_packet_get_smb(pd, buf);
+#endif
+	buf += data_off;
+	max_len -= data_off;
+
+	switch (pd->reply_id) {
+...
+	case REPLY_KEYPPAD:
+		event = (struct osdp_event *)pd->ephemeral_data;
+		assert_buf_len(REPLY_KEYPAD_LEN + event->keypress.length, max_len); /* VULN: assert */
+		buf[len++] = pd->reply_id;
+		buf[len++] = (uint8_t)event->keypress.reader_no;
+		buf[len++] = (uint8_t)event->keypress.length;
+		memcpy(buf + len, event->keypress.data, event->keypress.length); /* VULN: buffer overflow */
+		len += event->keypress.length;
+		ret = OSDP_PD_ERR_NONE;
+		break;
+	case REPLY_RAW: {
+		int len_bytes;
+
+		event = (struct osdp_event *)pd->ephemeral_data;
+		len_bytes = (event->cardread.length + 7) / 8;
+		assert_buf_len(REPLY_RAW_LEN + len_bytes, max_len); /* VULN: assert */
+		buf[len++] = pd->reply_id;
+		buf[len++] = (uint8_t)event->cardread.reader_no;
+		buf[len++] = (uint8_t)event->cardread.format;
+		buf[len++] = BYTE_0(event->cardread.length);
+		buf[len++] = BYTE_1(event->cardread.length);
+		memcpy(buf + len, event->cardread.data, len_bytes); /* VULN: buffer overflow */
+		len += len_bytes;
+		ret = OSDP_PD_ERR_NONE;
+		break;
+	}
+	case REPLY_FMT:
+		event = (struct osdp_event *)pd->ephemeral_data;
+		assert_buf_len(REPLY_FMT_LEN + event->cardread.length, max_len); /* VULN: assert */
+		buf[len++] = pd->reply_id;
+		buf[len++] = (uint8_t)event->cardread.reader_no;
+		buf[len++] = (uint8_t)event->cardread.direction;
+		buf[len++] = (uint8_t)event->cardread.length;
+		memcpy(buf + len, event->cardread.data, event->cardread.length); /* VULN: buffer overflow */
+		len += event->cardread.length;
+		ret = OSDP_PD_ERR_NONE;
+		break;
+...
+```
+
+See also:
+https://github.com/zephyrproject-rtos/zephyr/security/advisories/GHSA-56p9-5p3v-hhrc
+
+
+--[ 3.7 - CVE-2023-4263 - Buffer overflow vulnerability in the Zephyr IEEE 802.15.4 driver
+
+We spotted a buffer overflow vulnerability at the following location in the
+Zephyr IEEE 802.15.4 driver source code:
+
+* /drivers/ieee802154/ieee802154_nrf5.c
+
+Buffer overflow in drivers/ieee802154/ieee802154_nrf5.c:
+```c
+static int nrf5_tx(const struct device *dev,
+		   enum ieee802154_tx_mode mode,
+		   struct net_pkt *pkt,
+		   struct net_buf *frag)
+{
+	struct nrf5_802154_data *nrf5_radio = NRF5_802154_DATA(dev);
+	uint8_t payload_len = frag->len;
+	uint8_t *payload = frag->data;
+	bool ret = true;
+
+	LOG_DBG("%p (%u)", payload, payload_len);
+
+	nrf5_radio->tx_psdu[0] = payload_len + NRF5_FCS_LENGTH;
+	memcpy(nrf5_radio->tx_psdu + 1, payload, payload_len); /* VULN: stack-based buffer overflow due to unchecked payload_len */
+
+	/* Reset semaphore in case ACK was received after timeout */
+	k_sem_reset(&nrf5_radio->tx_wait);
+...
+```
+
+Fixes:
+https://github.com/zephyrproject-rtos/zephyr/pull/60528
+https://github.com/zephyrproject-rtos/zephyr/pull/61384
+https://github.com/zephyrproject-rtos/zephyr/pull/61216
+
+See also:
+https://github.com/zephyrproject-rtos/zephyr/security/advisories/GHSA-rf6q-rhhp-pqhf
+
+
+--[ 3.8 - CVE-2023-4264 - Buffer overflow vulnerabilities in the Zephyr Bluetooth subsystem
+
+We spotted a few buffer overflow vulnerabilities at the following locations
+in the Zephyr Bluetooth subsystem source code:
+
+* /subsys/bluetooth/audio/tbs.c
+* /subsys/bluetooth/audio/shell/mcc.c
+* /subsys/bluetooth/audio/shell/media_controller.c
+* /subsys/bluetooth/host/conn.c
+* /subsys/bluetooth/mesh/beacon.c
+* /subsys/bluetooth/mesh/prov_device.c
+* /subsys/bluetooth/mesh/provisioner.c
+* /subsys/bluetooth/mesh/shell/rpr.c
+
+Static buffer overflows in /subsys/bluetooth/audio/tbs.c:
+```c
+int bt_tbs_remote_incoming(uint8_t bearer_index, const char *to,
+			   const char *from, const char *friendly_name)
+{
+	struct tbs_service_inst *inst;
+	struct bt_tbs_call *call = NULL;
+	size_t local_uri_ind_len;
+	size_t remote_uri_ind_len;
+	size_t friend_name_ind_len;
+...
+	inst = &svc_insts[bearer_index];
+...
+	if (friendly_name) {
+		inst->friendly_name.call_index = call->index;
+		(void)strcpy(inst->friendly_name.uri, friendly_name); /* VULN */
+		friend_name_ind_len = strlen(from) + 1;
+...
+	if (IS_ENABLED(CONFIG_BT_GTBS)) {
+...
+		if (friendly_name) {
+			gtbs_inst.friendly_name.call_index = call->index;
+			(void)strcpy(gtbs_inst.friendly_name.uri, friendly_name); /* VULN */
+			friend_name_ind_len = strlen(from) + 1;
+...
+```
+
+Stack-based buffer overflow in /subsys/bluetooth/audio/shell/mcc.c:
+```c
+#ifdef CONFIG_BT_MCC_OTS
+static int cmd_mcc_send_search_raw(const struct shell *sh, size_t argc,
+				   char *argv[])
+{
+	int result;
+	struct mpl_search search;
+
+	search.len = strlen(argv[1]);
+	memcpy(search.search, argv[1], search.len); /* VULN */
+	LOG_DBG("Search string: %s", argv[1]);
+
+	result = bt_mcc_send_search(default_conn, &search);
+	if (result) {
+		shell_print(sh, "Fail: %d", result);
+	}
+	return result;
+}
+```
+
+Stack-based buffer overflow in
+/subsys/bluetooth/audio/shell/media_controller.c:
+```c
+#ifdef CONFIG_BT_OTS
+static int cmd_media_set_search(const struct shell *sh, size_t argc, char *argv[])
+{
+	/* TODO: Currently takes the raw search as input - add parameters
+	 * and build the search item here
+	 */
+
+	struct mpl_search search;
+	int err;
+
+	search.len = strlen(argv[1]);
+	memcpy(search.search, argv[1], search.len); /* VULN */
+	LOG_DBG("Search string: %s", argv[1]);
+
+	err = media_proxy_ctrl_send_search(current_player, &search);
+	if (err) {
+		shell_error(ctx_shell, "Search send failed (%d)", err);
+	}
+
+	return err;
+}
+```
+
+Heap-based buffer overflow in /subsys/bluetooth/host/conn.c:
+```c
+#if defined(CONFIG_BT_SMP)
+...
+int bt_conn_le_start_encryption(struct bt_conn *conn, uint8_t rand[8],
+				uint8_t ediv[2], const uint8_t *ltk, size_t len)
+{
+	struct bt_hci_cp_le_start_encryption *cp;
+	struct net_buf *buf;
+
+	buf = bt_hci_cmd_create(BT_HCI_OP_LE_START_ENCRYPTION, sizeof(*cp));
+	if (!buf) {
+		return -ENOBUFS;
+	}
+
+	cp = net_buf_add(buf, sizeof(*cp));
+	cp->handle = sys_cpu_to_le16(conn->handle);
+	memcpy(&cp->rand, rand, sizeof(cp->rand));
+	memcpy(&cp->ediv, ediv, sizeof(cp->ediv));
+
+	memcpy(cp->ltk, ltk, len); /* VULN */
+	if (len < sizeof(cp->ltk)) {
+		(void)memset(cp->ltk + len, 0, sizeof(cp->ltk) - len);
+	}
+
+	return bt_hci_cmd_send_sync(BT_HCI_OP_LE_START_ENCRYPTION, buf, NULL);
+}
+```
+
+Ineffective size check due to assert and buffer overflow in
+/subsys/bluetooth/mesh/beacon.c:
+```c
+void bt_mesh_beacon_priv_random_get(uint8_t *random, size_t size)
+{
+	__ASSERT(size <= sizeof(priv_random.val), "Invalid random value size %u", size);
+	memcpy(random, priv_random.val, size); /* VULN */
+}
+```
+
+Static buffer overflow in /subsys/bluetooth/mesh/prov_device.c (conf_size
+could be 32 and not 16):
+```c
+static void prov_confirm(const uint8_t *data)
+{
+	uint8_t conf_size = bt_mesh_prov_auth_size_get();
+
+	LOG_DBG("Remote Confirm: %s", bt_hex(data, conf_size));
+
+	memcpy(bt_mesh_prov_link.conf, data, conf_size); /* VULN */
+	notify_input_complete();
+
+	send_confirm();
+}
+```
+
+Static buffer overflow in /subsys/bluetooth/mesh/provisioner.c (conf_size
+could be 32 and not 16):
+```c
+static void prov_confirm(const uint8_t *data)
+{
+	uint8_t conf_size = bt_mesh_prov_auth_size_get();
+
+	LOG_DBG("Remote Confirm: %s", bt_hex(data, conf_size));
+
+	if (!memcmp(data, bt_mesh_prov_link.conf, conf_size)) {
+		LOG_ERR("Confirm value is identical to ours, rejecting.");
+		prov_fail(PROV_ERR_CFM_FAILED);
+		return;
+	}
+
+	memcpy(bt_mesh_prov_link.conf, data, conf_size); /* VULN */
+
+	send_random();
+}
+```
+
+Stack-based buffer overflow in /subsys/bluetooth/mesh/shell/rpr.c:
+```c
+static void rpr_scan_report(struct bt_mesh_rpr_cli *cli,
+			    const struct bt_mesh_rpr_node *srv,
+			    struct bt_mesh_rpr_unprov *unprov,
+			    struct net_buf_simple *adv_data)
+{
+	char uuid_hex_str[32 + 1];
+
+	bin2hex(unprov->uuid, 16, uuid_hex_str, sizeof(uuid_hex_str));
+
+	shell_print(bt_mesh_shell_ctx_shell,
+		    "Server 0x%04x:\n"
+		    "\tuuid:   %s\n"
+		    "\tOOB:    0x%04x",
+		    srv->addr, uuid_hex_str, unprov->oob);
+
+	while (adv_data && adv_data->len > 2) {
+		uint8_t len, type;
+		uint8_t data[31];
+
+		len = net_buf_simple_pull_u8(adv_data) - 1;
+		type = net_buf_simple_pull_u8(adv_data);
+		memcpy(data, net_buf_simple_pull_mem(adv_data, len), len); /* VULN */
+		data[len] = '\0';
+
+		if (type == BT_DATA_URI) {
+			shell_print(bt_mesh_shell_ctx_shell, "\tURI:    \"\\x%02x%s\"",
+				    data[0], &data[1]);
+		} else if (type == BT_DATA_NAME_COMPLETE) {
+			shell_print(bt_mesh_shell_ctx_shell, "\tName:   \"%s\"", data);
+		} else {
+			char string[64 + 1];
+
+			bin2hex(data, len, string, sizeof(string));
+			shell_print(bt_mesh_shell_ctx_shell, "\t0x%02x:  %s", type, string);
+		}
+	}
+}
+```
+
+Fixes:
+https://github.com/zephyrproject-rtos/zephyr/pull/58834
+https://github.com/zephyrproject-rtos/zephyr/pull/60465
+https://github.com/zephyrproject-rtos/zephyr/pull/61845
+
+See also:
+https://github.com/zephyrproject-rtos/zephyr/security/advisories/GHSA-rgx6-3w4j-gf5j
+
+
+--[ 3.9 - CVE-2023-4265 - Two buffer overflow vulnerabilities in Zephyr USB code
+
+We found two buffer overflow vulnerabilities at the following locations:
+
+* /drivers/usb/device/usb_dc_native_posix.c#L359
+* /subsys/usb/device/class/netusb/function_rndis.c#L841
+
+The first vulnerability is located in the usb_dc_ep_write() function:
+```c
+int usb_dc_ep_write(const uint8_t ep, const uint8_t *const data,
+		    const uint32_t data_len, uint32_t * const ret_bytes)
+{
+	LOG_DBG("ep %x len %u", ep, data_len);
+
+	if (!usbip_ctrl.attached || !usbip_ep_is_valid(ep)) {
+		LOG_ERR("Not attached / Invalid endpoint: EP 0x%x", ep);
+		return -EINVAL;
+	}
+
+	/* Check if IN ep */
+	if (USB_EP_GET_DIR(ep) != USB_EP_DIR_IN) {
+		return -EINVAL;
+	}
+
+	/* Check if ep enabled */
+	if (!usbip_ep_is_enabled(ep)) {
+		LOG_WRN("ep %x disabled", ep);
+		return -EINVAL;
+	}
+
+	if (USB_EP_GET_IDX(ep) == 0) {
+		if (!usbip_send_common(ep, data_len)) {
+			return -EIO;
+		}
+
+		if (usbip_send(ep, data, data_len) != data_len) {
+			return -EIO;
+		}
+	} else {
+		uint8_t ep_idx = USB_EP_GET_IDX(ep);
+		struct usb_ep_ctrl_prv *ctrl = &usbip_ctrl.in_ep_ctrl[ep_idx];
+
+		memcpy(ctrl->buf, data, data_len); /* VULN */
+		ctrl->buf_len = data_len;
+	}
+
+	if (ret_bytes) {
+		*ret_bytes = data_len;
+	}
+
+	return 0;
+}
+```
+
+A check on `data_len` is missing. Because `data` and `data_len` are
+potentially attacker-controlled, the fixed-size buffer `buf` in the
+following structure could overflow during memcpy(), thus leading to denial
+of service or arbitrary code execution:
+```c
+struct usb_ep_ctrl_prv {
+	u8_t ep_ena;
+	u16_t mps;
+	usb_dc_ep_callback cb;
+	u32_t data_len;
+	u8_t buf[64];
+	u8_t buf_len;
+};
+```
+
+The second vulnerability is located in the handle_encapsulated_rsp()
+function:
+```c
+static int handle_encapsulated_rsp(uint8_t **data, uint32_t *len)
+{
+	struct net_buf *buf;
+
+	LOG_DBG("");
+
+	buf = net_buf_get(&rndis_tx_queue, K_NO_WAIT);
+	if (!buf) {
+		LOG_ERR("Error getting response buffer");
+		*len = 0U;
+		return -ENODATA;
+	}
+
+	if (VERBOSE_DEBUG) {
+		net_hexdump("RSP <", buf->data, buf->len);
+	}
+
+	memcpy(*data, buf->data, buf->len); /* VULN */
+	*len = buf->len;
+
+	net_buf_unref(buf);
+
+	return 0;
+}
+```
+
+A check on `buf->len` is missing. Because `buf->data` and `buf->len` are
+potentially attacker-controlled, the `data` buffer could overflow due to
+memcpy(), thus leading to denial of service or arbitrary code execution.
+
+Fixes:
+https://github.com/zephyrproject-rtos/zephyr/pull/59018
+https://github.com/zephyrproject-rtos/zephyr/pull/59157
+
+See also:
+https://github.com/zephyrproject-rtos/zephyr/security/advisories/GHSA-4vgv-5r6q-r6xh
+
+
+--[ 3.10 - CVE-2023-5139 - Buffer overflow vulnerability in the Zephyr STM32 Crypto driver
+
+We spotted a buffer overflow vulnerability at the following location in the
+Zephyr STM32 Crypto driver source code:
+
+* /drivers/crypto/crypto_stm32.c
+
+Buffer overflow due to ineffective assert check in
+/drivers/crypto/crypto_stm32.c:
+```c
+static void copy_reverse_words(uint8_t *dst_buf, int dst_len,
+			       uint8_t *src_buf, int src_len)
+{
+	int i;
+
+	__ASSERT_NO_MSG(dst_len >= src_len); /* VULN: assert */
+	__ASSERT_NO_MSG((dst_len % 4) == 0);
+
+	memcpy(dst_buf, src_buf, src_len); /* VULN: buffer overflow */
+	for (i = 0; i < dst_len; i += sizeof(uint32_t)) {
+		sys_mem_swap(&dst_buf[i], sizeof(uint32_t));
+	}
+}
+```
+
+The function copy_reverse_words() is called in a few locations that might
+be problematic, because `src_len` might be attacker-controlled:
+
+* crypto_stm32_ctr_encrypt()
+* crypto_stm32_ctr_decrypt()
+* crypto_stm32_session_setup()
+
+Fixes:
+https://github.com/zephyrproject-rtos/zephyr/pull/61839
+
+See also:
+https://github.com/zephyrproject-rtos/zephyr/security/advisories/GHSA-rhrc-pcxp-4453
+
+
+--[3.11 - CVE-2023-5184 - Signed to unsigned conversion errors and buffer overflow vulnerabilities in the Zephyr IPM driver
+
+We spotted two signed to unsigned conversion errors and buffer overflow
+vulnerabilities at the following locations in the Zephyr IPM driver source
+code:
+
+* /drivers/ipm/ipm_imx.c
+* /drivers/ipm/ipm_mcux.c
+
+Buffer overflow if `size` is negative, due to signed/unsigned conversion in
+/drivers/ipm/ipm_imx.c:
+```c
+static int imx_mu_ipm_send(const struct device *dev, int wait, uint32_t id,
+			   const void *data, int size)
+{
+	const struct imx_mu_config *config = dev->config;
+	MU_Type *base = MU(config);
+	uint32_t data32[IMX_IPM_DATA_REGS];
+#if !IS_ENABLED(CONFIG_IPM_IMX_REV2)
+	mu_status_t status;
+#endif
+	int i;
+
+	if (id > CONFIG_IPM_IMX_MAX_ID_VAL) {
+		return -EINVAL;
+	}
+
+	if (size > CONFIG_IPM_IMX_MAX_DATA_SIZE) { /* VULN: ineffective check if size is negative */
+		return -EMSGSIZE;
+	}
+
+	/* Actual message is passing using 32 bits registers */
+	memcpy(data32, data, size); /* VULN: buffer overflow if size is negative */
+...
+```
+
+Buffer overflow if `size` is negative, due to signed/unsigned conversion in
+/drivers/ipm/ipm_mcux.c:
+```c
+static int mcux_mailbox_ipm_send(const struct device *d, int wait,
+				 uint32_t id,
+				 const void *data, int size)
+{
+	const struct mcux_mailbox_config *config = d->config;
+	MAILBOX_Type *base = config->base;
+	uint32_t data32[MCUX_IPM_DATA_REGS]; /* Until we change API
+					   * to uint32_t array
+					   */
+	unsigned int flags;
+	int i;
+
+	ARG_UNUSED(wait);
+
+	if (id > MCUX_IPM_MAX_ID_VAL) {
+		return -EINVAL;
+	}
+
+	if (size > MCUX_IPM_DATA_REGS * sizeof(uint32_t)) { /* VULN: ineffective check if size is negative */
+		return -EMSGSIZE;
+	}
+
+	flags = irq_lock();
+
+	/* Actual message is passing using 32 bits registers */
+	memcpy(data32, data, size); /* VULN: buffer overflow if size is negative */
+...
+```
+
+Fixes:
+https://github.com/zephyrproject-rtos/zephyr/pull/63069
+
+See also:
+https://github.com/zephyrproject-rtos/zephyr/security/advisories/GHSA-8x3p-q3r5-xh9g
+
+
+--[3.12 - CVE-2023-5753 - Other buffer overflow vulnerabilities in the Zephyr Bluetooth subsystem
+
+We spotted some additional buffer overflow vulnerabilities at the following
+locations in the Zephyr Bluetooth subsystem source code:
+
+* /subsys/bluetooth/controller/ll_sw/ull_adv.c
+* /subsys/bluetooth/host/hci_core.c
+* /subsys/bluetooth/host/iso.c
+
+Potential integer underflow due to ineffective assert check leading to
+buffer overflow in /subsys/bluetooth/controller/ll_sw/ull_adv.c:
+```c
+uint8_t ll_adv_params_set(uint16_t interval, uint8_t adv_type,
+		       uint8_t own_addr_type, uint8_t direct_addr_type,
+		       uint8_t const *const direct_addr, uint8_t chan_map,
+		       uint8_t filter_policy)
+{
+...
+#if defined(CONFIG_BT_CTLR_AD_DATA_BACKUP)
+	/* Backup the legacy AD Data if switching to legacy directed advertising
+	 * or to Extended Advertising.
+	 */
+	if (((pdu->type == PDU_ADV_TYPE_DIRECT_IND) ||
+	     (IS_ENABLED(CONFIG_BT_CTLR_ADV_EXT) &&
+	      (pdu->type == PDU_ADV_TYPE_EXT_IND))) &&
+	    (pdu_type_prev != PDU_ADV_TYPE_DIRECT_IND) &&
+	    (!IS_ENABLED(CONFIG_BT_CTLR_ADV_EXT) ||
+	     (pdu_type_prev != PDU_ADV_TYPE_EXT_IND))) {
+		if (pdu->len == 0U) {
+			adv->ad_data_backup.len = 0U;
+		} else {
+			LL_ASSERT(pdu->len >=
+				  offsetof(struct pdu_adv_adv_ind, data)); /* VULN: assert */
+
+			adv->ad_data_backup.len = pdu->len -
+				offsetof(struct pdu_adv_adv_ind, data); /* VULN: integer underflow */
+			memcpy(adv->ad_data_backup.data, pdu->adv_ind.data,
+			       adv->ad_data_backup.len); /* VULN: buffer overflow */
+		}
+	}
+#endif /* CONFIG_BT_CTLR_AD_DATA_BACKUP */
+...
+```
+
+Buffer overflows due to assert in /subsys/bluetooth/host/hci_core.c:
+```c
+#if defined(CONFIG_BT_CONN)
+static void hci_acl(struct net_buf *buf)
+{
+	struct bt_hci_acl_hdr *hdr;
+	uint16_t handle, len;
+	struct bt_conn *conn;
+	uint8_t flags;
+
+	LOG_DBG("buf %p", buf);
+
+	BT_ASSERT(buf->len >= sizeof(*hdr)); /* VULN: assert */
+
+	hdr = net_buf_pull_mem(buf, sizeof(*hdr)); /* VULN: buffer overflow */
+	len = sys_le16_to_cpu(hdr->len);
+	handle = sys_le16_to_cpu(hdr->handle);
+	flags = bt_acl_flags(handle);
+...
+
+static void hci_event(struct net_buf *buf)
+{
+	struct bt_hci_evt_hdr *hdr;
+
+	BT_ASSERT(buf->len >= sizeof(*hdr)); /* VULN: assert */
+
+	hdr = net_buf_pull_mem(buf, sizeof(*hdr)); /* VULN: buffer overflow */
+	LOG_DBG("event 0x%02x", hdr->evt);
+	BT_ASSERT(bt_hci_evt_get_flags(hdr->evt) & BT_HCI_EVT_FLAG_RECV); 
+
+	handle_event(hdr->evt, buf, normal_events, ARRAY_SIZE(normal_events));
+
+	net_buf_unref(buf);
+}
+...
+
+void hci_event_prio(struct net_buf *buf)
+{
+	struct net_buf_simple_state state;
+	struct bt_hci_evt_hdr *hdr;
+	uint8_t evt_flags;
+
+	net_buf_simple_save(&buf->b, &state);
+
+	BT_ASSERT(buf->len >= sizeof(*hdr)); /* VULN: assert */
+
+	hdr = net_buf_pull_mem(buf, sizeof(*hdr)); /* VULN: buffer overflow */
+	evt_flags = bt_hci_evt_get_flags(hdr->evt);
+	BT_ASSERT(evt_flags & BT_HCI_EVT_FLAG_RECV_PRIO);
+
+	handle_event(hdr->evt, buf, prio_events, ARRAY_SIZE(prio_events));
+
+	if (evt_flags & BT_HCI_EVT_FLAG_RECV) {
+		net_buf_simple_restore(&buf->b, &state);
+	} else {
+		net_buf_unref(buf);
+	}
+}
+```
+
+Buffer overflow due to assert in /subsys/bluetooth/host/iso.c:
+```c
+void hci_iso(struct net_buf *buf)
+{
+	struct bt_hci_iso_hdr *hdr;
+	uint16_t handle, len;
+	struct bt_conn *iso;
+	uint8_t flags;
+
+	BT_ISO_DATA_DBG("buf %p", buf);
+
+	BT_ASSERT(buf->len >= sizeof(*hdr)); /* VULN: assert */
+
+	hdr = net_buf_pull_mem(buf, sizeof(*hdr)); /* VULN: buffer overflow */
+	len = bt_iso_hdr_len(sys_le16_to_cpu(hdr->len));
+	handle = sys_le16_to_cpu(hdr->handle);
+	flags = bt_iso_flags(handle);
+...
+```
+
+In addition, the following helper functions in /subsys/net/buf_simple.c use
+assertions to check input, which renders checks ineffective:
+
+* net_buf_simple_add()
+* net_buf_simple_remove_mem()
+* net_buf_simple_push()
+* net_buf_simple_pull()
+* net_buf_simple_pull_mem()
+
+Fixes:
+https://github.com/zephyrproject-rtos/zephyr/pull/63605
+
+Note that the first item in this advisory, the one involving
+/subsys/bluetooth/controller/ll_sw/ull_adv.c, has not been addressed
+because the pdu length that is being asserted on has been set by the
+controller itself prior to the execution of this code, and so it is not
+coming from the outside world. Hence, an assertion is correct in that
+particular case.
+
+See also:
+https://github.com/zephyrproject-rtos/zephyr/security/advisories/GHSA-hmpr-px56-rvww
+
+
+--[ 4 - Affected products
+
+Zephyr 3.4.0 and earlier versions are affected by the vulnerabilities
+discussed in this advisory, except for CVE-2023-4265 (Two buffer overflow
+vulnerabilities in Zephyr USB code) that affects Zephyr 3.3.0 and earlier,
+and CVE-2023-4261 that affects Zephyr 3.5.0 and earlier.
+
+
+--[ 5 - Remediation
+
+On 2023-10-20 the Zephyr Project has released version 3.5.0 of their RTOS
+[6] that contains fixes for all vulnerabilities discussed in this advisory,
+except for CVE-2023-4265 that was already fixed in Zephyr 3.4.0, and
+CVE-2023-4261 that will be fixed in a future update.
+
+Please check the official Zephyr Project channels for further information
+about fixes and backported patches for older but still maintained releases
+of the Zephyr RTOS [7].
+
+
+--[ 6 - Disclosure timeline
+
+We reported the vulnerabilities discussed in this advisory to the Zephyr
+Project between May and July 2023, using GitHub's security advisories
+feature [8]. 
+
+Private vulnerability reporting allows security researchers to report
+vulnerabilities securely in a repository. It's an excellent way to
+streamline coordinated disclosure and we wish more maintainers enabled it.
+
+
+--[ 7 - Acknowledgements
+
+We would like to thank the Zephyr Project's development team and Flavio
+Ceolin in particular for triaging and fixing the reported vulnerabilities.
+
+
+--[ 8 - References
+
+[1] https://www.zephyrproject.org/
+[2] https://github.com/zephyrproject-rtos/zephyr
+[3] https://ost2.fyi/Vulns1001
+[4] https://ost2.fyi/Vulns1002
+[5] https://github.com/0xdea/semgrep-rules
+[6] https://github.com/zephyrproject-rtos/zephyr/releases/tag/v3.5.0
+[7] https://github.com/zephyrproject-rtos/zephyr/security
+[8] https://docs.github.com/en/code-security/security-advisories
+
+
+Copyright (c) 2023 Marco Ivaldi and Humanativa Group. All rights reserved.
