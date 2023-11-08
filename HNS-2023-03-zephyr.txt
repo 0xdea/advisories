@@ -80,7 +80,7 @@ impacts range from denial of service to potential arbitrary code execution.
 
 While going through the awesome OpenSecurityTraining2 (OST2) Vulns1001 and
 Vulns1002 training courses [3] [4], we discovered the Zephyr Project. It
-immediately picked our interest and therefore we decided to review its
+immediately piqued our interest and therefore we decided to review its
 source code.
 
 During the review, we made heavy use of our Semgrep C/C++ ruleset [5] to
