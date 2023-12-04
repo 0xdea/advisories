@@ -41,5 +41,5 @@
 * [**coturn**](https://github.com/coturn/coturn/pulls?q=is%3Apr+0xdea). Security issues in the Coturn TURN server.
 * [**FreeRTOS-Plus-TCP**](https://github.com/FreeRTOS/FreeRTOS-Plus-TCP/pull/1017). Security issues in FreeRTOS (uncredited).
 * [**lwIP/httpclient**](https://git.savannah.nongnu.org/cgit/lwip.git/commit/?id=ee1523630a81fffa6b7d93dd0c7a6191de5856cd). Integer wraparound and heap buffer overflow in lwIP (uncredited).
-* [**lwIP/httpclient**](https://git.savannah.nongnu.org/cgit/lwip.git/commit/?id=b413b040936f48d4cd9ed632ac579542c710efae). Integer underflow and static buffer overflow (uncredited).
+* [**lwIP/makefsdata**](https://git.savannah.nongnu.org/cgit/lwip.git/commit/?id=b413b040936f48d4cd9ed632ac579542c710efae). Integer underflow and static buffer overflow (uncredited).
 * [**HNS-2023-04-tinydir**](https://github.com/0xdea/advisories/blob/master/HNS-2023-04-tinydir.txt). Buffer overflow vulnerabilities with long path names in TinyDir (CVE-2023-49287).
