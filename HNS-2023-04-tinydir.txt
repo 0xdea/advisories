@@ -19,7 +19,7 @@
 5 - Affected products
 6 - Remediation
 7 - Disclosure timeline
-8 - Acknowledgements
+8 - Acknowledgments
 9 - References
 
 
@@ -276,7 +276,7 @@ fixes.
 2023-12-04: GitHub issued CVE-2023-49287 and we published this advisory.
 
 
---[ 8 - Acknowledgements
+--[ 8 - Acknowledgments
 
 We would like to thank TinyDir developers for triaging and quickly fixing
 the reported vulnerabilities.

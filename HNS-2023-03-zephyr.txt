@@ -55,7 +55,7 @@
 4 - Affected products
 5 - Remediation
 6 - Disclosure timeline
-7 - Acknowledgements
+7 - Acknowledgments
 8 - References
 
 
@@ -1117,7 +1117,7 @@ vulnerabilities securely in a repository. It's an excellent way to
 streamline coordinated disclosure and we wish more maintainers enabled it.
 
 
---[ 7 - Acknowledgements
+--[ 7 - Acknowledgments
 
 We would like to thank the Zephyr Project's development team and Flavio
 Ceolin in particular for triaging and fixing the reported vulnerabilities.
