@@ -12,6 +12,13 @@
 ## Linux
 * [**CVE-2006-1242**](https://www.securityfocus.com/archive/1/427622/100/0/threaded). Linux kernel IP ID information disclosure weakness.
 
+## OpenSSH
+* [**2003-01-openssh**](https://github.com/0xdea/advisories/blob/master/2003-01-openssh.txt). OpenSSH/PAM delay information disclosure vulnerability (CVE-2003-0190).
+* [**CVE-2006-5229**](https://www.securityfocus.com/archive/1/448025/100/0/threaded). OpenSSH information disclosure via timing leak.
+
+## X.Org
+* [**CVE-2022-46285**](https://lists.x.org/archives/xorg-announce/2023-January/003312.html). Infinite loop on unclosed comments handling XPM files in libXpm.
+
 ## Solaris
 * [**2019-01-cde-dtprintinfo**](https://github.com/0xdea/advisories/blob/master/2019-01-cde-dtprintinfo.txt). Local privilege escalation via CDE dtprintinfo (CVE-2019-2832).
 * [**2019-02-solaris-xscreensaver**](https://github.com/0xdea/advisories/blob/master/2019-02-solaris-xscreensaver.txt). Local privilege escalation via xscreensaver (CVE-2019-3010).
@@ -28,12 +35,8 @@
 ## Zephyr
 * [**HNS-2023-03-zephyr**](https://github.com/0xdea/advisories/blob/master/HNS-2023-03-zephyr.txt). Multiple vulnerabilities in Zephyr RTOS (CVE-2023-3725, CVE-2023-4257, CVE-2023-4259, CVE-2023-4260, CVE-2023-4261, CVE-2023-4262, CVE-2023-4263, CVE-2023-4264, CVE-2023-4265, CVE-2023-5139, CVE-2023-5184, CVE-2023-5753).
 
-## OpenSSH
-* [**2003-01-openssh**](https://github.com/0xdea/advisories/blob/master/2003-01-openssh.txt). OpenSSH/PAM delay information disclosure vulnerability (CVE-2003-0190).
-* [**CVE-2006-5229**](https://www.securityfocus.com/archive/1/448025/100/0/threaded). OpenSSH information disclosure via timing leak.
-
-## X.Org
-* [**CVE-2022-46285**](https://lists.x.org/archives/xorg-announce/2023-January/003312.html). Infinite loop on unclosed comments handling XPM files in libXpm.
+## RT-Thread
+* [**HNS-2024-05-rt-thread**](https://github.com/hnsecurity/vulns/blob/main/HNS-2024-05-rt-thread.txt). Multiple vulnerabilities in RT-Thread RTOS (CVE-2024-24334, CVE-2024-24335, CVE-2024-25388, CVE-2024-25389, CVE-2024-25390, CVE-2024-25391, CVE-2024-25392, CVE-2024-25393, CVE-2024-25394, CVE-2024-25395).
 
 ## Others
 * [**smbfs/umount**](https://www.illumos.org/issues/11618). Buffer overflow in Illumos smbfs/umount.
