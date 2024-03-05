@@ -1,0 +1,1117 @@
+--[ HNS-2024-05 - HN Security Advisory - https://security.humanativaspa.it/
+
+* Title: Multiple vulnerabilities in RT-Thread RTOS
+* OS: RT-Thread <= 5.0.2
+* Author: Marco Ivaldi <marco.ivaldi@hnsecurity.it>
+* Date: 2024-03-05
+* CVE IDs and advisory URLs:
+  * CVE-2024-24334 - https://github.com/RT-Thread/rt-thread/issues/8282
+  * CVE-2024-24335 - https://github.com/RT-Thread/rt-thread/issues/8271
+  * CVE-2024-25388 - https://github.com/RT-Thread/rt-thread/issues/8285
+  * CVE-2024-25389 - https://github.com/RT-Thread/rt-thread/issues/8283
+  * CVE-2024-25390 - https://github.com/RT-Thread/rt-thread/issues/8286
+  * CVE-2024-25391 - https://github.com/RT-Thread/rt-thread/issues/8287
+  * CVE-2024-25392 - https://github.com/RT-Thread/rt-thread/issues/8290
+  * CVE-2024-25393 - https://github.com/RT-Thread/rt-thread/issues/8288
+  * CVE-2024-25394 - https://github.com/RT-Thread/rt-thread/issues/8291
+  * CVE-2024-25395 - https://github.com/RT-Thread/rt-thread/issues/8289
+  * https://github.com/RT-Thread/rt-thread/issues/8292
+* Vendor URL: https://www.rt-thread.io/
+
+
+--[ 0 - Table of contents
+
+1 - Summary
+2 - Background
+3 - Vulnerabilities
+    3.1 - CVE-2024-24335 - Buffer overflow in RT-Thread dfs_v2 romfs filesystem
+    3.2 - CVE-2024-24334 - Heap buffer overflows in RT-Thread dfs_v2 dfs_file
+    3.3 - CVE-2024-25389 - Weak random source in RT-Thread rt_random driver
+    3.4 - CVE-2024-25388 - Heap buffer overflow in RT-Thread wlan driver
+    3.5 - CVE-2024-25390 - Heap buffer overflows in RT-Thread finsh
+    3.6 - CVE-2024-25391 - Stack buffer overflow in RT-Thread IPC
+    3.7 - CVE-2024-25393 - Stack buffer overflow in RT-Thread AT server
+    3.8 - CVE-2024-25395 - Static buffer overflow in RT-Thread rt-link utility
+    3.9 - CVE-2024-25392 - Out-of-bounds static array access in RT-Thread var_export utility
+    3.10 - CVE-2024-25394 - Multiple vulnerabilities in RT-Thread ymodem utility
+    3.11 - Use of outdated lwIP and TinyDir dependencies in RT-Thread
+4 - Affected products
+5 - Remediation
+6 - Disclosure timeline
+7 - Acknowledgments
+8 - References
+
+
+--[ 1 - Summary
+
+"Security is in the mind of the programmer and in the mind of the designer.
+Not so much in the code." 
+                                                             -- Alisa Esage
+
+RT-Thread [1] is an open-source, community-based real-time operating system
+(RTOS). RT-Thread can be used in sensing nodes, wireless connection chips,
+and many other resource-constrained scenarios. It is also widely applied in
+gateways, IPC, smart speakers, and other high-performance IoT applications.
+
+We reviewed RT-Thread's source code hosted on GitHub [2] and identified
+multiple security vulnerabilities that may cause memory corruption and
+security feature bypass. Their impacts range from denial of service to
+potential arbitrary code execution.
+
+We also audited the lwIP [3] and TinyDir [4] codebases on which some
+RT-Thread functionalities depend, and found some additional vulnerabilities
+that were subsequently fixed by the respective maintainers.
+
+
+--[ 2 - Background
+
+After our recent vulnerability disclosures [5] in the IoT space, we decided
+to keep assisting open-source projects in finding and fixing security
+vulnerabilities by reviewing their source code. RT-Thread was selected as a
+target of interest. Other RTOSes will be featured in future advisories and
+writeups.
+
+During this review, we made use of our Semgrep C/C++ ruleset [6] to
+identify hotspots in code on which to focus our attention. We also took
+advantage of this opportunity to improve and update the ruleset [7].
+
+
+--[ 3 - Vulnerabilities
+
+The vulnerabilities resulting from our source code review are briefly
+described in the following sections.
+
+
+--[ 3.1 - CVE-2024-24335 - Buffer overflow in RT-Thread dfs_v2 romfs filesystem
+
+We spotted a buffer overflow vulnerability at the following location in the
+RT-Thread dfs_v2 romfs filesystem source code:
+
+* /components/dfs/dfs_v2/filesystems/romfs/dfs_romfs.c
+
+Lack of length check in the `dfs_romfs_getdents()` function could lead to a
+buffer overflow at the marked line:
+```c
+static int dfs_romfs_getdents(struct dfs_file *file, struct dirent *dirp, uint32_t count)
+{
+    rt_size_t index;
+    const char *name;
+    struct dirent *d;
+    struct romfs_dirent *dirent, *sub_dirent;
+
+    dirent = (struct romfs_dirent *)file->vnode->data;
+    if (check_dirent(dirent) != 0)
+    {
+        return -EIO;
+    }
+    RT_ASSERT(dirent->type == ROMFS_DIRENT_DIR);
+
+    /* enter directory */
+    dirent = (struct romfs_dirent *)dirent->data;
+
+    /* make integer count */
+    count = (count / sizeof(struct dirent));
+    if (count == 0)
+    {
+        return -EINVAL;
+    }
+
+    index = 0;
+    for (index = 0; index < count && file->fpos < file->vnode->size; index++)
+    {
+        d = dirp + index;
+
+        sub_dirent = &dirent[file->fpos];
+        name = sub_dirent->name;
+
+        /* fill dirent */
+        if (sub_dirent->type == ROMFS_DIRENT_DIR)
+            d->d_type = DT_DIR;
+        else
+            d->d_type = DT_REG;
+
+        d->d_namlen = rt_strlen(name);
+        d->d_reclen = (rt_uint16_t)sizeof(struct dirent);
+        rt_strncpy(d->d_name, name, rt_strlen(name) + 1); /* VULN: buffer overflow if rt_strlen(name) is larger than sizeof(d->d_name) due to missing length check */
+
+        /* move to next position */
+        ++ file->fpos;
+    }
+
+    return index * sizeof(struct dirent);
+}
+```
+
+Note: dfs_v1 romfs in /components/dfs/dfs_v1/filesystems/romfs/dfs_romfs.c
+is not affected, because the string copy operation is implemented
+differently:
+```c
+        len = rt_strlen(name);
+        RT_ASSERT(len <= RT_UINT8_MAX);
+        d->d_namlen = (rt_uint8_t)len;
+        d->d_reclen = (rt_uint16_t)sizeof(struct dirent);
+        rt_strncpy(d->d_name, name, DFS_PATH_MAX);
+```
+
+Even if the assertion is compiled-out in production code, `len` is not used
+for the copy operation anyway. Therefore, unless `DFS_PATH_MAX` is larger
+than `sizeof(d->d_name)`, this code should be safe.
+
+Fixes:
+https://github.com/RT-Thread/rt-thread/pull/8278
+
+See also:
+https://github.com/RT-Thread/rt-thread/issues/8271
+
+
+--[ 3.2 - CVE-2024-24334 - Heap buffer overflows in RT-Thread dfs_v2 dfs_file
+
+We spotted some heap buffer overflow vulnerabilities at the following
+location in the RT-Thread dfs_v2 dfs_file source code:
+
+* /components/dfs/dfs_v2/src/dfs_file.c
+
+Lack of length check in the the `dfs_nolink_path()` function could lead to
+heap buffer overflows at the marked lines:
+```c
+static char *dfs_nolink_path(struct dfs_mnt **mnt, char *fullpath, int mode)
+{
+    int index = 0;
+    char *path = RT_NULL;
+    char link_fn[DFS_PATH_MAX] = {0};
+    struct dfs_dentry *dentry = RT_NULL;
+
+    path = (char *)rt_malloc((DFS_PATH_MAX * 2) + 1); // path + syslink + \0
+    if (!path)
+    {
+        return path;
+    }
+
+    if (*mnt && fullpath)
+    {
+        int i = 0;
+        char *fp = fullpath;
+
+        while (*fp != '\0')
+        {
+            fp++;
+            i++;
+            if (*fp == '/')
+            {
+                rt_memcpy(path + index, fp - i, i); /* VULN: if fullpath has components large enough so that i+index becomes larger than DFS_PATH_MAX*2+1, we could overflow past the path buffer */
+                path[index + i] = '\0';
+
+                dentry = dfs_dentry_lookup(*mnt, path, 0);
+                if (dentry && dentry->vnode->type == FT_SYMLINK)
+                {
+                    int ret = -1;
+
+                    if ((*mnt)->fs_ops->readlink)
+                    {
+                        if (dfs_is_mounted((*mnt)) == 0)
+                        {
+                            ret = (*mnt)->fs_ops->readlink(dentry, link_fn, DFS_PATH_MAX);
+                        }
+                    }
+
+                    if (ret > 0)
+                    {
+                        int len = rt_strlen(link_fn);
+                        if (link_fn[0] == '/')
+                        {
+                            rt_memcpy(path, link_fn, len);
+                            index = len;
+                        }
+                        else
+                        {
+                            path[index] = '/';
+                            index++;
+                            rt_memcpy(path + index, link_fn, len); /* VULN: len can be DFS_PATH_MAX; if index can become larger than DFS_PATH_MAX+1, we can overflow past the path buffer */
+                            index += len;
+                        }
+                        path[index] = '\0';
+                        *mnt = dfs_mnt_lookup(path);
+                    }
+                    else
+                    {
+                        rt_kprintf("link error: %s\n", path);
+                    }
+                }
+                else
+                {
+                    index += i;
+                }
+                dfs_dentry_unref(dentry);
+                i = 0;
+            }
+        }
+
+        if (i)
+        {
+            rt_memcpy(path + index, fp - i, i); /* VULN: if fullpath has components large enough so that i+index becomes larger than DFS_PATH_MAX*2+1, we could overflow past the path buffer */
+            path[index + i] = '\0';
+
+            if (mode)
+            {
+                dentry = dfs_dentry_lookup(*mnt, path, 0);
+                if (dentry && dentry->vnode->type == FT_SYMLINK)
+                {
+                    int ret = -1;
+
+                    if ((*mnt)->fs_ops->readlink)
+                    {
+                        if (dfs_is_mounted((*mnt)) == 0)
+                        {
+                            ret = (*mnt)->fs_ops->readlink(dentry, link_fn, DFS_PATH_MAX);
+                        }
+                    }
+
+                    if (ret > 0)
+                    {
+                        int len = rt_strlen(link_fn);
+                        if (link_fn[0] == '/')
+                        {
+                            rt_memcpy(path, link_fn, len);
+                            index = len;
+                        }
+                        else
+                        {
+                            path[index] = '/';
+                            index++;
+                            rt_memcpy(path + index, link_fn, len); /* VULN: len can be DFS_PATH_MAX; if index can become larger than DFS_PATH_MAX+1, we can overflow past the path buffer */
+                            index += len;
+                        }
+                        path[index] = '\0';
+                        *mnt = dfs_mnt_lookup(path);
+                    }
+                    else
+                    {
+                        rt_kprintf("link error: %s\n", path);
+                    }
+
+                    char *_fullpath = dfs_normalize_path(RT_NULL, path);
+                    if (_fullpath)
+                    {
+                        strncpy(path, _fullpath, DFS_PATH_MAX);
+                        rt_free(_fullpath);
+                    }
+                }
+                dfs_dentry_unref(dentry);
+            }
+        }
+    }
+    else
+    {
+        rt_free(path);
+        path = RT_NULL;
+    }
+
+    //rt_kprintf("%s: %s => %s\n", __FUNCTION__, fullpath, path);
+
+    return path;
+}
+```
+
+Fixes:
+https://github.com/RT-Thread/rt-thread/pull/8305
+
+See also:
+https://github.com/RT-Thread/rt-thread/issues/8282
+
+
+--[ 3.3 - CVE-2024-25389 - Weak random source in RT-Thread rt_random driver
+
+We noticed a weak random source at the following location in the RT-Thread
+rt_random driver source code:
+
+* /components/drivers/misc/rt_random.c
+
+Weak random generator in the the `calc_random()` function:
+```c
+static rt_uint16_t calc_random(void)
+{
+    seed = 214013L * seed + 2531011L;
+    return (seed >> 16) & 0x7FFF;   /* return bits 16~30 */
+}
+
+static rt_ssize_t random_read(rt_device_t dev, rt_off_t pos, void *buffer, rt_size_t size)
+{
+    rt_uint16_t rand = calc_random(); /* VULN: weak random source */
+    ssize_t ret = sizeof(rand);
+    rt_memcpy(buffer, &rand, ret);
+    return ret;
+}
+```
+
+See also:
+https://github.com/RT-Thread/rt-thread/issues/8283
+
+
+--[ 3.4 - CVE-2024-25388 - Heap buffer overflow in RT-Thread wlan driver
+
+We spotted a heap buffer overflow vulnerability at the following location
+in the RT-Thread wlan driver source code:
+
+* /components/drivers/wlan/wlan_mgnt.c
+
+Since `len` is a signed integer in the `rt_wlan_send_to_thread()` function,
+a small negative value could lead to a buffer overflow at the marked lines:
+```c
+#ifdef RT_WLAN_WORK_THREAD_ENABLE
+...
+static rt_err_t rt_wlan_send_to_thread(rt_wlan_event_t event, void *buff, int len)
+{
+    struct rt_wlan_msg *msg;
+
+    RT_WLAN_LOG_D("F:%s is run event:%d", __FUNCTION__, event);
+
+    /* Event packing */
+    msg = rt_malloc(sizeof(struct rt_wlan_msg) + len); /* VULN: if len is a small negative number, this would result in an under-allocation */
+    if (msg == RT_NULL)
+    {
+        RT_WLAN_LOG_E("wlan mgnt send msg err! No memory");
+        return -RT_ENOMEM;
+    }
+    rt_memset(msg, 0, sizeof(struct rt_wlan_msg) + len);
+    msg->event = event;
+    if (len != 0)
+    {
+        msg->buff = (void *)&msg[1];
+        rt_memcpy(msg->buff, buff, len); /* VULN: the small negative number would become a large unsigned size, and we would have a wild memcpy and a heap buffer overflow */
+        msg->len = len;
+    }
+
+    /* send event to wlan thread */
+    if (rt_wlan_workqueue_dowork(rt_wlan_mgnt_work, msg) != RT_EOK)
+    {
+        rt_free(msg);
+        RT_WLAN_LOG_E("wlan mgnt do work fail");
+        return -RT_ERROR;
+    }
+    return RT_EOK;
+}
+```
+
+See also:
+https://github.com/RT-Thread/rt-thread/issues/8285
+
+
+--[ 3.5 - CVE-2024-25390 - Heap buffer overflows in RT-Thread finsh
+
+We spotted some heap buffer overflow vulnerabilities at the following
+locations in the RT-Thread finsh source code:
+
+* /components/finsh/msh_file.c
+* /components/finsh/msh.c
+
+Unbounded `rt_sprintf()` in the `directory_delete_for_msh()` function could
+lead to a heap buffer overflow at the marked line:
+```c
+static void directory_delete_for_msh(const char *pathname, char f, char v)
+{
+    DIR *dir = NULL;
+    struct dirent *dirent = NULL;
+    char *full_path;
+
+    if (pathname == RT_NULL)
+        return;
+
+    full_path = (char *)rt_malloc(DFS_PATH_MAX);
+    if (full_path == RT_NULL)
+        return;
+
+    dir = opendir(pathname);
+    if (dir == RT_NULL)
+    {
+        if (f == 0)
+        {
+            rt_kprintf("cannot remove '%s'\n", pathname);
+        }
+        rt_free(full_path);
+        return;
+    }
+
+    while (1)
+    {
+        dirent = readdir(dir);
+        if (dirent == RT_NULL)
+            break;
+        if (rt_strcmp(".", dirent->d_name) != 0 &&
+                rt_strcmp("..", dirent->d_name) != 0)
+        {
+            rt_sprintf(full_path, "%s/%s", pathname, dirent->d_name); /* VULN: full_path is DFS_PATH_MAX bytes (only 256 bytes), potentially not enough to accommodate pathname + dirent->d_name */
+            if (dirent->d_type != DT_DIR)
+            {
+                if (unlink(full_path) != 0)
+                {
+                    if (f == 0)
+                        rt_kprintf("cannot remove '%s'\n", full_path);
+                }
+                else if (v)
+                {
+                    rt_kprintf("removed '%s'\n", full_path);
+                }
+            }
+            else
+            {
+                directory_delete_for_msh(full_path, f, v);
+            }
+        }
+    }
+    closedir(dir);
+    rt_free(full_path);
+    if (rmdir(pathname) != 0)
+    {
+        if (f == 0)
+            rt_kprintf("cannot remove '%s'\n", pathname);
+    }
+    else if (v)
+    {
+        rt_kprintf("removed directory '%s'\n", pathname);
+    }
+}
+```
+
+Unbounded `rt_sprintf()` in the `directory_setattr()` function could lead
+to a heap buffer overflow at the marked line:
+```c
+static void directory_setattr(const char *pathname, struct dfs_attr *attr, char f, char v)
+{
+    DIR *dir = NULL;
+    struct dirent *dirent = NULL;
+    char *full_path;
+
+    if (pathname == RT_NULL)
+        return;
+
+    full_path = (char *)rt_malloc(DFS_PATH_MAX);
+    if (full_path == RT_NULL)
+        return;
+
+    dir = opendir(pathname);
+    if (dir == RT_NULL)
+    {
+        if (f == 0)
+        {
+            rt_kprintf("cannot open '%s'\n", pathname);
+        }
+        rt_free(full_path);
+        return;
+    }
+
+    while (1)
+    {
+        dirent = readdir(dir);
+        if (dirent == RT_NULL)
+            break;
+        if (rt_strcmp(".", dirent->d_name) != 0 &&
+            rt_strcmp("..", dirent->d_name) != 0)
+        {
+            rt_sprintf(full_path, "%s/%s", pathname, dirent->d_name); /* VULN: full_path is DFS_PATH_MAX bytes (only 256 bytes), potentially not enough to accommodate pathname + dirent->d_name */
+            if (dirent->d_type == DT_REG)
+            {
+                if (dfs_file_setattr(full_path, attr) != 0)
+                {
+                    if (f == 0)
+                    {
+                        rt_kprintf("'%s' setattr failed, no such file or directory\n", full_path);
+                    }
+                }
+                else if (v)
+                {
+                    rt_kprintf("'%s' setattr 0x%X\n", full_path, attr->st_mode);
+                }
+            }
+            else if (dirent->d_type == DT_DIR)
+            {
+                directory_setattr(full_path, attr, f, v);
+            }
+        }
+    }
+    closedir(dir);
+    rt_free(full_path);
+    if (dfs_file_setattr(pathname, attr) != 0)
+    {
+        if (f == 0)
+        {
+            rt_kprintf("'%s' setattr failed, no such file or directory\n", pathname);
+        }
+    }
+    else if (v)
+    {
+        rt_kprintf("'%s' setattr 0x%X\n", pathname, attr->st_mode);
+    }
+}
+```
+
+Unbounded `strcpy()` in the `msh_auto_complete_path()` function could lead
+to a heap buffer overflow at the marked line:
+```c
+#ifdef DFS_USING_POSIX
+void msh_auto_complete_path(char *path)
+{
+    DIR *dir = RT_NULL;
+    struct dirent *dirent = RT_NULL;
+    char *full_path, *ptr, *index;
+
+    if (!path)
+        return;
+
+    full_path = (char *)rt_malloc(256);
+    if (full_path == RT_NULL) return; /* out of memory */
+
+    if (*path != '/')
+    {
+        getcwd(full_path, 256);
+        if (full_path[rt_strlen(full_path) - 1]  != '/')
+            strcat(full_path, "/");
+    }
+    else *full_path = '\0';
+
+    index = RT_NULL;
+    ptr = path;
+    for (;;)
+    {
+        if (*ptr == '/') index = ptr + 1;
+        if (!*ptr) break;
+
+        ptr ++;
+    }
+    if (index == RT_NULL) index = path;
+
+    if (index != RT_NULL)
+    {
+        char *dest = index;
+
+        /* fill the parent path */
+        ptr = full_path;
+        while (*ptr) ptr ++;
+
+        for (index = path; index != dest;)
+            *ptr++ = *index++;
+        *ptr = '\0';
+
+        dir = opendir(full_path);
+        if (dir == RT_NULL) /* open directory failed! */
+        {
+            rt_free(full_path);
+            return;
+        }
+
+        /* restore the index position */
+        index = dest;
+    }
+
+    /* auto complete the file or directory name */
+    if (*index == '\0') /* display all of files and directories */
+    {
+        for (;;)
+        {
+            dirent = readdir(dir);
+            if (dirent == RT_NULL) break;
+
+            rt_kprintf("%s\n", dirent->d_name);
+        }
+    }
+    else
+    {
+        int multi = 0;
+        rt_size_t length, min_length;
+
+        min_length = 0;
+        for (;;)
+        {
+            dirent = readdir(dir);
+            if (dirent == RT_NULL) break;
+
+            /* matched the prefix string */
+            if (strncmp(index, dirent->d_name, rt_strlen(index)) == 0)
+            {
+                multi ++;
+                if (min_length == 0)
+                {
+                    min_length = rt_strlen(dirent->d_name);
+                    /* save dirent name */
+                    strcpy(full_path, dirent->d_name); /* VULN: if sizeof(dirent->d_name) > 256, we could overflow past the full_path buffer */
+                }
+
+                length = str_common(dirent->d_name, full_path);
+
+                if (length < min_length)
+                {
+                    min_length = length;
+                }
+            }
+        }
+
+        if (min_length)
+        {
+            if (multi > 1)
+            {
+                /* list the candidate */
+                rewinddir(dir);
+
+                for (;;)
+                {
+                    dirent = readdir(dir);
+                    if (dirent == RT_NULL) break;
+
+                    if (strncmp(index, dirent->d_name, rt_strlen(index)) == 0)
+                        rt_kprintf("%s\n", dirent->d_name);
+                }
+            }
+
+            length = index - path;
+            rt_memcpy(index, full_path, min_length);
+            path[length + min_length] = '\0';
+
+            /* try to locate folder */
+            if (multi == 1)
+            {
+                struct stat buffer = {0};
+                if ((stat(path, &buffer) == 0))
+                {
+                    if (S_ISDIR(buffer.st_mode))
+                    {
+                        strcat(path, "/");
+                    }
+                    else if (S_ISLNK(buffer.st_mode))
+                    {
+                        DIR *dir = opendir(path);
+                        if (dir)
+                        {
+                            closedir(dir);
+                            strcat(path, "/");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    closedir(dir);
+    rt_free(full_path);
+}
+#endif /* DFS_USING_POSIX */
+```
+
+Fixes:
+https://github.com/RT-Thread/rt-thread/pull/8305
+
+See also:
+https://github.com/RT-Thread/rt-thread/issues/8286
+
+
+--[ 3.6 - CVE-2024-25391 - Stack buffer overflow in RT-Thread IPC
+
+We spotted a stack buffer overflow vulnerability at the following location
+in the RT-Thread IPC source code:
+
+* /components/libc/posix/ipc/mqueue.c
+
+Unbounded `rt_sprintf()` in the `mq_unlink()` function could lead to a
+stack buffer overflow at the marked line:
+```c
+int mq_unlink(const char *name)
+{
+    if(*name == '/')
+    {
+        name++;
+    }
+    const char *mq_path = "/dev/mqueue/";
+    char mq_name[RT_NAME_MAX + 12] = {0};
+    rt_sprintf(mq_name, "%s%s", mq_path, name); /* VULN: stack buffer overflow */
+    return unlink(mq_name);
+}
+```
+
+Note: the mq_open() function in /components/libc/posix/ipc/mqueue.c
+implements bound checking:
+```c
+    int len = rt_strlen(name);
+    if (len > RT_NAME_MAX)
+    {
+        rt_set_errno(ENAMETOOLONG);
+        return (mqd_t)(-1);
+    }
+```
+
+See also:
+https://github.com/RT-Thread/rt-thread/issues/8287
+
+
+--[ 3.7 - CVE-2024-25393 - Stack buffer overflow in RT-Thread AT server
+
+We spotted a stack buffer overflow vulnerability at the following location
+in the RT-Thread AT server source code:
+
+* /components/net/at/src/at_server.c
+
+Lack of length check in the `at_cmd_get_name()` function could lead to a
+stack buffer overflow at the marked line:
+```c
+#ifdef AT_USING_SERVER
+...
+static rt_err_t at_cmd_get_name(const char *cmd_buffer, char *cmd_name)
+{
+    rt_size_t cmd_name_len = 0, i = 0;
+
+    RT_ASSERT(cmd_name);
+    RT_ASSERT(cmd_buffer);
+
+    for (i = 0; i < strlen(cmd_buffer); i++)
+    {
+        if (*(cmd_buffer + i) == AT_CMD_QUESTION_MARK || *(cmd_buffer + i) == AT_CMD_EQUAL_MARK
+                || *(cmd_buffer + i) == AT_CMD_CR
+                || (*(cmd_buffer + i) >= AT_CMD_CHAR_0 && *(cmd_buffer + i) <= AT_CMD_CHAR_9))
+        {
+            cmd_name_len = i;
+            rt_memcpy(cmd_name, cmd_buffer, cmd_name_len); /* VULN: cmd_buffer is AT_SERVER_RECV_BUFF_LEN bytes (256), while cmd_name is only AT_CMD_NAME_LEN bytes (16); therefore, it might be possible to overflow past the cmd_name buffer with a carefully crafted cmd_buffer */
+            *(cmd_name + cmd_name_len) = '\0';
+
+            return RT_EOK;
+        }
+    }
+
+    return -RT_ERROR;
+}
+```
+
+Fixes:
+https://github.com/RT-Thread/rt-thread/commit/a8d5a645f2e26af67c8fe94e2c7f1726ae05cca7
+
+See also:
+https://github.com/RT-Thread/rt-thread/issues/8288
+
+
+--[ 3.8 - CVE-2024-25395 - Static buffer overflow in RT-Thread rt-link utility
+
+We spotted a static buffer overflow vulnerability at the following location
+in the RT-Thread rt-link utility source code:
+
+* /components/utilities/rt-link/src/rtlink.c
+
+Lack of length check in the `frame_send()` function could lead to a static
+buffer overflow at the marked line:
+```c
+static rt_ssize_t frame_send(struct rt_link_frame *frame)
+{
+    rt_size_t length = 0;
+    rt_uint8_t *data = RT_NULL;
+
+    rt_memset(rt_link_scb->sendbuffer, 0, sizeof(rt_link_scb->sendbuffer));
+    data = rt_link_scb->sendbuffer;
+    length = RT_LINK_HEAD_LENGTH;
+    if (frame->head.crc)
+    {
+        length += RT_LINK_CRC_LENGTH;
+    }
+    if (frame->head.extend)
+    {
+        length += RT_LINK_EXTEND_LENGTH;
+    }
+
+    length += frame->data_len;
+    frame->head.length = frame->data_len;
+    rt_memcpy(data, &frame->head, RT_LINK_HEAD_LENGTH);
+    data = data + RT_LINK_HEAD_LENGTH;
+    if (frame->head.extend)
+    {
+        rt_memcpy(data, &frame->extend, RT_LINK_EXTEND_LENGTH);
+        data = data + RT_LINK_EXTEND_LENGTH;
+    }
+    if (frame->attribute == RT_LINK_SHORT_DATA_FRAME || frame->attribute == RT_LINK_LONG_DATA_FRAME)
+    {
+        rt_memcpy(data, frame->real_data, frame->data_len); /* VULN: static buffer overflow, if frame->data_len > 1024 - 4 (it's a rt_uint16_t so at least in theory can be up to 65535) */
+        data = data + frame->data_len;
+    }
+    if (frame->head.crc)
+    {
+        frame->crc = rt_link_scb->calculate_crc(RT_FALSE, rt_link_scb->sendbuffer, length - RT_LINK_CRC_LENGTH);
+        rt_memcpy(data, &frame->crc, RT_LINK_CRC_LENGTH);
+    }
+
+    LOG_D("frame send seq(%d) len(%d) attr:(%d), crc:(0x%08x).", frame->head.sequence, length, frame->attribute, frame->crc);
+    return rt_link_hw_send(rt_link_scb->sendbuffer, length);
+}
+```
+
+See also:
+https://github.com/RT-Thread/rt-thread/issues/8289
+
+
+--[ 3.9 - CVE-2024-25392 - Out-of-bounds static array access in RT-Thread var_export utility
+
+We spotted a potential out-of-bounds static array access at the following
+location in the RT-Thread var_export utility source code:
+
+* /components/utilities/var_export/var_export.c
+
+Improper size check due to the use of `RT_ASSERT()` in the
+`var_export_init()` function at the marked line, which if compiled out in
+production code could lead to multiple out-of-bounds `ve_exporter_tab`
+static array accesses in the next lines:
+```c
+int var_export_init(void)
+{
+    /* initialize the var export table.*/
+#if defined(__ARMCC_VERSION)                        /* for ARM C Compiler */
+    ve_exporter_table = &__ve_table_start + 1;
+    ve_exporter_num = &__ve_table_end - &__ve_table_start;
+#elif defined (__IAR_SYSTEMS_ICC__)                 /* for IAR Compiler */
+    ve_exporter_table = &__ve_table_start + 1;
+    ve_exporter_num = &__ve_table_end - &__ve_table_start - 1;
+#elif defined (__GNUC__)                            /* for GCC Compiler */
+    extern const int __ve_table_start;
+    extern const int __ve_table_end;
+    ve_exporter_table = (const ve_exporter_t *)&__ve_table_start;
+    ve_exporter_num = (const ve_exporter_t *)&__ve_table_end - ve_exporter_table;
+#elif defined (_MSC_VER)                            /* for MS VC++ compiler */
+    unsigned int *ptr_begin = (unsigned int *)&__ve_table_start;
+    unsigned int *ptr_end = (unsigned int *)&__ve_table_end;
+    static ve_exporter_t ve_exporter_tab[2048];
+    static char __vexp_strbuf1[1024];
+    static char __vexp_strbuf2[1024];
+    ve_exporter_t ve_exporter_temp;
+    rt_size_t index_i, index_j;
+
+    /* past the three members in first ptr_begin */
+    ptr_begin += (sizeof(struct ve_exporter) / sizeof(unsigned int));
+    while (*ptr_begin == 0) ptr_begin++;
+    do ptr_end--; while (*ptr_end == 0);
+
+    /* Find var objects in custom segments to solve the problem of holes in objects in different files */
+    ve_exporter_num = ve_init_find_obj(ptr_begin, ptr_end, ve_exporter_tab);
+
+    /* check if the ve_exporter_num is out of bounds */
+    RT_ASSERT(ve_exporter_num < (sizeof(ve_exporter_tab) / sizeof(ve_exporter_t))); /* VULN: size check is implemented via assertion */
+
+    /* bubble sort algorithms */
+    for (index_i = 0; index_i < (ve_exporter_num - 1); index_i++)
+    {
+        for (index_j = 0; index_j < ((ve_exporter_num - 1) - index_i); index_j++)
+        {
+            /* splice ve_exporter's module and ve_exporter's identifier into a complete string */
+            rt_snprintf(__vexp_strbuf1,
+                        sizeof(__vexp_strbuf1),
+                        "%s%s",
+                        ve_exporter_tab[index_j].module,
+                        ve_exporter_tab[index_j].identifier);
+            rt_snprintf(__vexp_strbuf2,
+                        sizeof(__vexp_strbuf2),
+                        "%s%s",
+                        ve_exporter_tab[index_j + 1].module,
+                        ve_exporter_tab[index_j + 1].identifier);
+            if (rt_strcmp(__vexp_strbuf1, __vexp_strbuf2) > 0)
+            {
+                ve_exporter_temp = ve_exporter_tab[index_j];
+                ve_exporter_tab[index_j] = ve_exporter_tab[index_j + 1];
+                ve_exporter_tab[index_j + 1] = ve_exporter_temp;
+            }
+        }
+    }
+
+    ve_exporter_table = ve_exporter_tab;
+#endif /* __ARMCC_VERSION */
+
+    return ve_exporter_num;
+}
+```
+
+See also:
+https://github.com/RT-Thread/rt-thread/issues/8290
+
+
+--[ 3.10 - CVE-2024-25394 - Multiple vulnerabilities in RT-Thread ymodem utility
+
+We spotted some potential vulnerabilities at the following location in the
+RT-Thread ymodem utility source code:
+
+* /components/utilities/ymodem/ry_sy.c
+
+Unbounded `rt_sprintf()` in the `_rym_send_begin()` function could lead to
+a buffer overflow at the marked line:
+```c
+static enum rym_code _rym_send_begin(
+    struct rym_ctx *ctx,
+    rt_uint8_t *buf,
+    rt_size_t len)
+{
+    struct custom_ctx *cctx = (struct custom_ctx *)ctx;
+    struct stat file_buf;
+    char insert_0 = '\0';
+    rt_err_t err;
+
+    cctx->fd = open(cctx->fpath, O_RDONLY);
+    if (cctx->fd < 0)
+    {
+        err = rt_get_errno();
+        rt_kprintf("error open file: %d\n", err);
+        return RYM_ERR_FILE;
+    }
+    rt_memset(buf, 0, len);
+    err = stat(cctx->fpath, &file_buf);
+    if (err != RT_EOK)
+    {
+        rt_kprintf("error open file.\n");
+        return RYM_ERR_FILE;
+    }
+
+    const char *fdst = _get_path_lastname(cctx->fpath);
+    if(fdst != cctx->fpath)
+    {
+        fdst = dfs_normalize_path(RT_NULL, fdst);
+        if (fdst == RT_NULL)
+        {
+            return RYM_ERR_FILE;
+        }
+    }
+
+    rt_sprintf((char *)buf, "%s%c%d", fdst, insert_0, file_buf.st_size); /* VULN: if we can make fdst large enough, there's no bound checking */
+
+    return RYM_CODE_SOH;
+}
+```
+
+Lack of NUL-termination in the `rym_download_file()` function at the marked
+line:
+```c
+static rt_err_t rym_download_file(rt_device_t idev,const char *file_path)
+{
+    rt_err_t res;
+    struct custom_ctx *ctx = rt_calloc(1, sizeof(*ctx));
+
+    if (!ctx)
+    {
+        rt_kprintf("rt_malloc failed\n");
+        return -RT_ENOMEM;
+    }
+    ctx->fd = -1;
+    rt_strncpy(ctx->fpath, file_path, DFS_PATH_MAX); /* VULN: unterm if file_path is at least DFS_PATH_MAX bytes (comes from argv); it might cause infoleak or memory corruption */
+    RT_ASSERT(idev);
+    res = rym_recv_on_device(&ctx->parent, idev, RT_DEVICE_OFLAG_RDWR | RT_DEVICE_FLAG_INT_RX,
+                             _rym_recv_begin, _rym_recv_data, _rym_recv_end, 1000);
+    rt_free(ctx);
+
+    return res;
+}
+```
+
+Lack of NUL-termination in the `rym_upload_file()` function at the marked line:
+```c
+static rt_err_t rym_upload_file(rt_device_t idev, const char *file_path)
+{
+    rt_err_t res = 0;
+
+    struct custom_ctx *ctx = rt_calloc(1, sizeof(*ctx));
+    if (!ctx)
+    {
+        rt_kprintf("rt_malloc failed\n");
+        return -RT_ENOMEM;
+    }
+    ctx->fd = -1;
+    rt_strncpy(ctx->fpath, file_path, DFS_PATH_MAX); /* VULN: unterm if file_path is at least DFS_PATH_MAX bytes (comes from argv); it might cause infoleak or memory corruption */
+    RT_ASSERT(idev);
+    res = rym_send_on_device(&ctx->parent, idev,
+                             RT_DEVICE_OFLAG_RDWR | RT_DEVICE_FLAG_INT_RX,
+                             _rym_send_begin, _rym_send_data, _rym_send_end, 1000);
+    rt_free(ctx);
+
+    return res;
+}
+```
+
+See also:
+https://github.com/RT-Thread/rt-thread/issues/8291
+
+
+--[ 3.11 - Use of outdated lwIP and TinyDir dependencies in RT-Thread
+
+Finally, we noticed that the lwIP and TinyDir dependencies in RT-Thread are
+outdated. In addition, during the source code review we also audited the
+lwIP and TinyDir codebases, and found the following vulnerabilities that
+were subsequently fixed by maintainers:
+
+* httpc with LWIP_HTTPC_HAVE_FILE_IO: heap buffer overflow for long local filenames
+  * https://git.savannah.nongnu.org/cgit/lwip.git/commit/?id=ee1523630a81fffa6b7d93dd0c7a6191de5856cd
+* makefsdata: buffer corruption with very long paths
+  * https://git.savannah.nongnu.org/cgit/lwip.git/commit/?id=b413b040936f48d4cd9ed632ac579542c710efae
+* CVE-2023-49287 - Buffer overflow vulnerabilities with long path names in TinyDir
+  * https://github.com/hnsecurity/vulns/blob/main/HNS-2023-04-tinydir.txt
+
+These are not necessarily security concerns for RT-Thread. However, as a
+general rule, it is important to keep dependencies as up to date as
+possible, because more relevant bugs might get fixed upstream.
+
+See also:
+https://github.com/RT-Thread/rt-thread/issues/8292
+
+
+--[ 4 - Affected products
+
+RT-Thread 5.0.2, TinyDir 1.2.5, lwIP 2.2.0, and (likely) earlier versions
+are affected by the vulnerabilities discussed in this advisory.
+
+
+--[ 5 - Remediation
+
+RT-Thread developers have fixed some of the vulnerabilities discussed in
+this advisory. However, some of the reported vulnerabilities are still
+open.
+
+Please check the official RT-Thread channels for further information about
+fixes.
+
+
+--[ 6 - Disclosure timeline
+
+We reported the vulnerabilities discussed in this advisory to RT-Thread in
+November 2023, by opening issues [8] on GitHub as directed [9] by the
+maintainers.
+
+Following our request, MITRE assigned CVE IDs to all vulnerabilities in
+February 2024.
+
+Even though not all vulnerabilities were fixed by the maintainers, we
+decided to go ahead with public disclosure after about 90 days since the
+initial reports. This decision was taken mainly based on the fact that the
+vulnerability reports were already publicly accessible as GitHub issues.
+
+The detailed coordinated disclosure timeline follows:
+
+2023-11-12: Asked on GitHub how to report potential security issues.
+2023-11-13: RT-Thread founder replied to open issues directly on GitHub.
+2023-11-20: Opened the first issue on GitHub.
+2023-11-24: First vulnerability fixed; reported some other vulnerabilities.
+2023-11-28: Second (and third) vulnerability fixed.
+2023-12-24: Asked maintainers for updates.
+2024-01-17: Requested the first batch of CVE IDs from MITRE.
+2024-01-26: Informed maintainers of plan to publish advisory in February.
+2024-02-02: Requested the second batch of CVE IDs from MITRE.
+2024-02-07: CVE IDs for all reported vulnerabilities assigned by MITRE.
+2024-02-08: Communicated CVE IDs and new 2024-03-05 publication date.
+2024-02-18: Maintainers acknowledge publication date and inform about new fixes.
+2024-03-05: Published advisory and writeup.
+
+
+--[ 7 - Acknowledgments
+
+We would like to thank RT-Thread, lwIP, and TinyDir developers for the time
+dedicated to triaging the reported vulnerabilities. We would also like to
+thank MITRE for assigning CVE IDs upon our request.
+
+
+--[ 8 - References
+
+[1] https://www.rt-thread.io/
+[2] https://github.com/RT-Thread/rt-thread
+[3] https://savannah.nongnu.org/projects/lwip/
+[4] https://github.com/cxong/tinydir
+[5] https://security.humanativaspa.it/ost2-zephyr-rtos-and-a-bunch-of-cves/
+[6] https://github.com/0xdea/semgrep-rules
+[7] https://security.humanativaspa.it/big-update-to-my-semgrep-c-cpp-ruleset/
+[8] https://github.com/search?o=desc&q=author%3A0xdea+rt-thread&s=created&type=issues
+[9] https://github.com/RT-Thread/rt-thread/issues/8250
+
+
+Copyright (c) 2024 Marco Ivaldi and Humanativa Group. All rights reserved.
