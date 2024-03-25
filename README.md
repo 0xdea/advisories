@@ -19,6 +19,9 @@
 ## X.Org
 * [**CVE-2022-46285**](https://lists.x.org/archives/xorg-announce/2023-January/003312.html). Infinite loop on unclosed comments handling XPM files in libXpm.
 
+## Azure
+* [**GHSA-m8wp-hc7w-x4xg**](https://github.com/Azure/azure-c-shared-utility/security/advisories/GHSA-m8wp-hc7w-x4xg). Integer wraparound vulnerability in Azure C SDK.
+
 ## Solaris
 * [**2019-01-cde-dtprintinfo**](https://github.com/0xdea/advisories/blob/master/2019-01-cde-dtprintinfo.txt). Local privilege escalation via CDE dtprintinfo (CVE-2019-2832).
 * [**2019-02-solaris-xscreensaver**](https://github.com/0xdea/advisories/blob/master/2019-02-solaris-xscreensaver.txt). Local privilege escalation via xscreensaver (CVE-2019-3010).
