@@ -41,6 +41,9 @@
 ## RT-Thread
 * [**HNS-2024-05-rt-thread**](https://github.com/0xdea/advisories/blob/master/HNS-2024-05-rt-thread.txt). Multiple vulnerabilities in RT-Thread RTOS (CVE-2024-24334, CVE-2024-24335, CVE-2024-25388, CVE-2024-25389, CVE-2024-25390, CVE-2024-25391, CVE-2024-25392, CVE-2024-25393, CVE-2024-25394, CVE-2024-25395).
 
+## ThreadX
+* TBD
+
 ## Others
 * [**smbfs/umount**](https://www.illumos.org/issues/11618). Buffer overflow in Illumos smbfs/umount.
 * [**dhclient**](https://gitlab.isc.org/isc-projects/dhcp/-/issues/280). Format string bug in ISC DHCP configuration file handling.
