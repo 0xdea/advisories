@@ -20,6 +20,7 @@
 * [**CVE-2022-46285**](https://lists.x.org/archives/xorg-announce/2023-January/003312.html). Infinite loop on unclosed comments handling XPM files in libXpm.
 
 ## Azure
+* [**CVE-2024-25110**](https://github.com/Azure/azure-uamqp-c/security/advisories/GHSA-c646-4whf-r67v). Integer wraparound vulnerability in Azure IoT Platform Device SDK.
 * [**CVE-2024-29195**](https://github.com/Azure/azure-c-shared-utility/security/advisories/GHSA-m8wp-hc7w-x4xg). Integer wraparound vulnerability in Azure C SDK.
 
 ## Solaris
