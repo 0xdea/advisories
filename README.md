@@ -46,7 +46,7 @@
 * **HNS-2024-06-threadx.txt**. TBA (CVE-2024-2212, CVE-2024-2214, CVE-2024-2452).
 
 ## RIOT
-* **HNS-2024-07-riot.txt**. TBA (CVE-2024-31225).
+* **HNS-2024-07-riot.txt**. TBA (CVE-2024-31225, CVE-2024-32017, CVE-2024-32018).
 
 ## Others
 * [**smbfs/umount**](https://www.illumos.org/issues/11618). Buffer overflow in Illumos smbfs/umount.
