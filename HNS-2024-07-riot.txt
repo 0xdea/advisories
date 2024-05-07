@@ -1,0 +1,953 @@
+--[ HNS-2024-07 - HN Security Advisory - https://security.humanativaspa.it/
+
+* Title: Multiple vulnerabilities in RIOT OS
+* OS: RIOT <= 2024.01
+* Author: Marco Ivaldi <marco.ivaldi@hnsecurity.it>
+* Date: 2024-05-07
+* CVE ID and severity:
+  * CVE-2024-31225 - High
+  * CVE-2024-32017 - Critical
+  * CVE-2024-32018 - High
+  (low-severity vulnerabilities were not assigned a CVE ID)
+* Vendor URL: https://www.riot-os.org/
+* Advisory URLs: 
+  * https://github.com/RIOT-OS/RIOT/security/advisories/GHSA-2572-7q7c-3965
+  * https://github.com/RIOT-OS/RIOT/security/advisories/GHSA-v97j-w9m6-c4h3
+  * https://github.com/RIOT-OS/RIOT/security/advisories/GHSA-899m-q6pp-hmp3
+  * https://github.com/RIOT-OS/RIOT/security/advisories/GHSA-x3j5-hfrr-5x6q
+  * https://github.com/RIOT-OS/RIOT/security/advisories/GHSA-pw2r-pp35-xfmj
+  * https://github.com/RIOT-OS/RIOT/security/advisories/GHSA-c4p4-vv7v-3hx8
+  * https://github.com/RIOT-OS/RIOT/security/advisories/GHSA-r87w-9vw9-f7cx
+  * https://github.com/RIOT-OS/RIOT/security/advisories/GHSA-2hx7-c324-3rxv
+  * https://github.com/RIOT-OS/RIOT/security/advisories/GHSA-frp5-4gfp-84j3
+  * https://github.com/RIOT-OS/RIOT/security/advisories/GHSA-x27v-gqp4-7jq3
+
+
+--[ 0 - Table of contents
+
+1 - Summary
+2 - Background
+3 - Vulnerabilities
+    3.1 - CVE-2024-31225 - Lack of size check and buffer overflow in RIOT /sys/net/application_layer/cord/lc/cord_lc.c
+    3.2 - CVE-2024-32017 - Buffer overflows in RIOT /sys/net/application_layer/gcoap/
+    3.3 - CVE-2024-32018 - Ineffective size check due to assert() and buffer overflow in RIOT /pkg/nimble/scanlist/nimble_scanlist.c
+    3.4 - Unsafe use of the return value of vsnprintf() and out-of-bounds memory access in RIOT /cpu/esp_common/lib_printf.c
+    3.5 - Ineffective size check due to assert() and buffer overflow in RIOT /sys/net/ble/skald/skald_eddystone.c
+    3.6 - Ineffective size check due to assert() and buffer overflow in RIOT /sys/suit/handlers_command_seq.c
+    3.7 - Integer wraparound and buffer overflow in RIOT /drivers/mtd_emulated/mtd_emulated.c
+    3.8 - Off-by-one buffer overflow and unterminated string in RIOT /pkg/lwext4/fs/lwext4_fs.c
+    3.9 - Unsafe use of the return value of snprintf() and out-of-bounds memory access in RIOT /sys/shell/cmds/vfs.c
+    3.10 - Lack of size checks and buffer overflows in RIOT /sys/net/application_layer/emcute/emcute.c
+4 - Affected products
+5 - Remediation
+6 - Disclosure timeline
+7 - Acknowledgments
+8 - References
+
+
+--[ 1 - Summary
+
+"Where there is parsing, there are bugs." 
+                     -- Dr. Silvio Cesare
+
+RIOT [1] is a free, open-source, real-time operating system developed by a
+grassroots community gathering companies, academia, and hobbyists, distributed
+all around the world. It supports most low-power IoT devices, microcontroller
+architectures (32-bit, 16-bit, 8-bit), and external devices. RIOT aims to
+implement all relevant open standards supporting an Internet of Things that is
+connected, secure, durable, and privacy friendly.
+
+We reviewed RIOT's source code hosted on GitHub [2] and identified multiple
+security vulnerabilities that may cause memory corruption. Their impacts range
+from denial of service to potential arbitrary code execution.
+
+
+--[ 2 - Background
+
+Continuing our recent vulnerability research work in the IoT space [3] [4], we
+keep assisting open-source projects in finding and fixing vulnerabilities by
+reviewing their source code, with the final goal to make IoT more secure. In
+January 2024, RIOT was selected as a target of interest.
+
+During the source code review, we put our Semgrep C/C++ ruleset [5] and weggli
+pattern collection [6] to good use to identify hotspots in code on which to
+focus our attention.
+
+
+--[ 3 - Vulnerabilities
+
+The vulnerabilities resulting from our source code review are briefly described
+in the following sections.
+
+
+--[ 3.1 - CVE-2024-31225 - Lack of size check and buffer overflow in RIOT /sys/net/application_layer/cord/lc/cord_lc.c
+
+We spotted the lack of a size check that may lead to a buffer overflow in RIOT
+source code at:
+
+* /sys/net/application_layer/cord/lc/cord_lc.c
+
+The `_on_rd_init()` function does not implement a size check before copying
+data to the `_result_buf` static buffer. If an attacker can craft a long enough
+payload, they could cause a buffer overflow.
+
+See the marked line below:
+```c
+static void _on_rd_init(const gcoap_request_memo_t *memo, coap_pkt_t *pdu,
+                       const sock_udp_ep_t *remote)
+{
+    (void)remote;
+
+    thread_flags_t flag = FLAG_NORSC;
+
+    if (memo->state == GCOAP_MEMO_RESP) {
+        unsigned ct = coap_get_content_type(pdu);
+        if (ct != COAP_FORMAT_LINK) {
+            DEBUG("cord_lc: error payload not in link format: %u\n", ct);
+            goto end;
+        }
+        if (pdu->payload_len == 0) {
+            DEBUG("cord_lc: error empty payload\n");
+            goto end;
+        }
+        memcpy(_result_buf, pdu->payload, pdu->payload_len); // VULN: lack of size check and potential buffer overflow
+        _result_buf_len = pdu->payload_len;
+        _result_buf[_result_buf_len] = '\0';
+        flag = FLAG_SUCCESS;
+    } else if (memo->state == GCOAP_MEMO_TIMEOUT) {
+        flag = FLAG_TIMEOUT;
+    }
+
+end:
+    if (flag != FLAG_SUCCESS) {
+        _result_buf = NULL;
+        _result_buf_len = 0;
+    }
+    thread_flags_set(_waiter, flag);
+}
+```
+
+Note that the `_on_lookup()` function in the same file does implement such an
+explicit size check:
+```c
+static void _on_lookup(const gcoap_request_memo_t *memo, coap_pkt_t *pdu,
+                       const sock_udp_ep_t *remote)
+{
+    (void)remote;
+
+    thread_flags_t flag = FLAG_ERR;
+
+    if (memo->state == GCOAP_MEMO_RESP) {
+        unsigned ct = coap_get_content_type(pdu);
+        if (ct != COAP_FORMAT_LINK) {
+            DEBUG("cord_lc: unsupported content format: %u\n", ct);
+            thread_flags_set(_waiter, flag);
+        }
+        if (pdu->payload_len == 0) {
+            flag = FLAG_NORSC;
+            thread_flags_set(_waiter, flag);
+        }
+        if (pdu->payload_len >= _result_buf_len) { // CHECK
+            flag = FLAG_OVERFLOW;
+            thread_flags_set(_waiter, flag);
+        }
+        memcpy(_result_buf, pdu->payload, pdu->payload_len);
+        memset(_result_buf + pdu->payload_len, 0,
+               _result_buf_len - pdu->payload_len);
+        _result_buf_len = pdu->payload_len;
+        flag = FLAG_SUCCESS;
+    } else if (memo->state == GCOAP_MEMO_TIMEOUT) {
+        flag = FLAG_TIMEOUT;
+    }
+
+    thread_flags_set(_waiter, flag);
+}
+```
+
+If the unchecked input above is attacker-controlled and crosses a security
+boundary, the impact of the buffer overflow vulnerability could range from
+denial of service to arbitrary code execution.
+
+Fixes:
+https://github.com/RIOT-OS/RIOT/pull/20547
+
+See also:
+https://github.com/RIOT-OS/RIOT/security/advisories/GHSA-2572-7q7c-3965
+
+
+--[ 3.2 - CVE-2024-32017 - Buffer overflows in RIOT /sys/net/application_layer/gcoap/
+
+We spotted a typo in a size check that may lead to a buffer overflow in RIOT
+source code at:
+
+* /sys/net/application_layer/gcoap/dns.c
+
+We also spotted another potential buffer overflow in RIOT source code at:
+
+* /sys/net/application_layer/gcoap/forward_proxy.c
+
+The size check in the `gcoap_dns_server_proxy_get()` function contains a small
+typo that may lead to a buffer overflow in the subsequent `strcpy()`. The
+length of the `_uri` string is checked instead of the length of the `_proxy`
+string.
+
+See the marked lines below:
+```c
+ssize_t gcoap_dns_server_proxy_get(char *proxy, size_t proxy_len)
+{
+    ssize_t res = 0;
+    mutex_lock(&_client_mutex);
+    if (_dns_server_uri_isset()) {
+        res = strlen(_uri); // VULN: typo, should be strlen(_proxy)
+        if (((size_t)res + 1) > proxy_len) {
+            /* account for trailing \0 */
+            res = -ENOBUFS;
+        }
+        else {
+            strcpy(proxy, _proxy); // VULN: potential buffer overflow
+        }
+    }
+    mutex_unlock(&_client_mutex);
+    return res;
+}
+```
+
+The `_gcoap_forward_proxy_copy_options()` function does not implement an
+explicit size check before copying data to the `cep->req_etag` buffer that is
+`COAP_ETAG_LENGTH_MAX` bytes long. If an attacker can craft input so that
+optlen becomes larger than `COAP_ETAG_LENGTH_MAX`, they can cause a buffer
+overflow.
+
+See the marked line below:
+```c
+static int _gcoap_forward_proxy_copy_options(coap_pkt_t *pkt,
+                                             coap_pkt_t *client_pkt,
+                                             client_ep_t *cep,
+                                             uri_parser_result_t *urip)
+{
+    /* copy all options from client_pkt to pkt */
+    coap_optpos_t opt = {0, 0};
+    uint8_t *value;
+    bool uri_path_added = false;
+    bool etag_added = false;
+
+    for (int i = 0; i < client_pkt->options_len; i++) {
+        ssize_t optlen = coap_opt_get_next(client_pkt, &opt, &value, !i);
+        /* wrt to ETag option slack: we always have at least the Proxy-URI option in the client_pkt,
+         * so we should hit at least once (and it's opt_num is also >= COAP_OPT_ETAG) */
+        if (optlen >= 0) {
+            if (IS_USED(MODULE_NANOCOAP_CACHE) && !etag_added && (opt.opt_num >= COAP_OPT_ETAG)) {
+                static const uint8_t tmp[COAP_ETAG_LENGTH_MAX] = { 0 };
+                /* add slack to maybe add an ETag on stale cache hit later, as is done in
+                 * gcoap_req_send() (which we circumvented in _gcoap_forward_proxy_via_coap()) */
+                if (coap_opt_add_opaque(pkt, COAP_OPT_ETAG, tmp, sizeof(tmp))) {
+                    etag_added = true;
+                }
+            }
+            if (IS_USED(MODULE_NANOCOAP_CACHE) && opt.opt_num == COAP_OPT_ETAG) {
+                if (_cep_get_req_etag_len(cep) == 0) {
+                    /* TODO: what to do on multiple ETags? */
+                    _cep_set_req_etag_len(cep, (uint8_t)optlen);
+#if IS_USED(MODULE_NANOCOAP_CACHE)
+                    /* req_tag in cep is pre-processor guarded so we need to as well */
+                    memcpy(cep->req_etag, value, optlen); // VULN: potential buffer overflow if optlen can become larger than COAP_ETAG_LENGTH_MAX
+#endif
+...
+```
+
+If the input above is attacker-controlled and crosses a security boundary, the
+impact of the buffer overflow vulnerabilities could range from denial of
+service to arbitrary code execution.
+
+Fixes:
+https://github.com/RIOT-OS/RIOT/pull/20561
+https://github.com/RIOT-OS/RIOT/pull/20579
+
+See also:
+https://github.com/RIOT-OS/RIOT/security/advisories/GHSA-v97j-w9m6-c4h3
+
+
+--[ 3.3 - CVE-2024-32018 - Ineffective size check due to assert() and buffer overflow in RIOT /pkg/nimble/scanlist/nimble_scanlist.c
+
+We spotted an ineffective size check implemented via `assert()` that may lead
+to a buffer overflow in RIOT source code at:
+
+* /pkg/nimble/scanlist/nimble_scanlist.c
+
+Most codebases define assertion macros which compile to a no-op on non-debug
+builds. If assertions are the only line of defense against untrusted input, the
+software may be exposed to attacks that leverage the lack of proper input
+checks.
+
+In detail, in the `nimble_scanlist_update()` function below, `len` is checked
+in an assertion and subsequently used in a call to `memcpy()`. If an attacker
+is able to provide a larger `len` value while assertions are compiled-out, they
+can write past the end of the fixed-length `e->ad` buffer.
+
+See the marked lines below:
+```c
+/**
+ * @brief   Data structure for holding a single scanlist entry
+ */
+typedef struct {
+    clist_node_t node;              /**< list node */
+    ble_addr_t addr;                /**< a node's BLE address */
+    uint8_t ad[BLE_ADV_PDU_LEN];    /**< the received raw advertising data */
+    uint8_t ad_len;                 /**< length of the advertising data */
+    int8_t last_rssi;               /**< last RSSI of a scanned node */
+    uint32_t adv_msg_cnt;           /**< number of adv packets by a node */
+    uint32_t first_update;          /**< first packet timestamp */
+    uint32_t last_update;           /**< last packet timestamp */
+    uint8_t type;                   /**< advertising packet type */
+    uint8_t phy_pri;                /**< primary PHY used */
+    uint8_t phy_sec;                /**< secondary PHY advertised */
+} nimble_scanlist_entry_t;
+
+...
+
+void nimble_scanlist_update(uint8_t type, const ble_addr_t *addr,
+                            const nimble_scanner_info_t *info,
+                            const uint8_t *ad, size_t len)
+{
+    assert(addr);
+    assert(len <= BLE_ADV_PDU_LEN); // VULN: len is checked to be <= BLE_ADV_PDU_LEN only via an assertion
+
+    uint32_t now = (uint32_t)ztimer_now(ZTIMER_USEC);
+    nimble_scanlist_entry_t *e = _find(addr);
+
+    if (!e) {
+        e = (nimble_scanlist_entry_t *)clist_lpop(&_pool);
+        if (!e) {
+            /* no space available, dropping newly discovered node */
+            return;
+        }
+        memcpy(&e->addr, addr, sizeof(ble_addr_t));
+        if (ad) {
+            memcpy(e->ad, ad, len); // VULN: if len is actually larger than BLE_ADV_PDU_LEN there's a potential buffer overflow
+        }
+        e->ad_len = len;
+        e->last_rssi = info->rssi;
+        e->first_update = now;
+        e->adv_msg_cnt = 1;
+        e->type = type;
+        e->phy_pri = info->phy_pri;
+        e->phy_sec = info->phy_sec;
+        clist_rpush(&_list, (clist_node_t *)e);
+    }
+    else {
+        e->adv_msg_cnt++;
+    }
+
+    e->last_update = now;
+}
+```
+
+If the unchecked input above is attacker-controlled and crosses a security
+boundary, the impact of the buffer overflow vulnerability could range from
+denial of service to arbitrary code execution.
+
+Fixes:
+https://github.com/RIOT-OS/RIOT/pull/20555
+
+See also:
+https://github.com/RIOT-OS/RIOT/security/advisories/GHSA-899m-q6pp-hmp3
+
+
+--[ 3.4 - Unsafe use of the return value of vsnprintf() and out-of-bounds memory access in RIOT /cpu/esp_common/lib_printf.c
+
+We spotted an unsafe use of the return value of `vsnprintf()` that leads to an
+out-of-bounds memory access in RIOT source code at:
+
+* /cpu/esp_common/lib_printf.c
+
+The `vsnprintf()` API function returns the number of characters (excluding the
+terminating NUL byte) which would have been written to the destination string
+if enough space had been available. 
+
+If an attacker is able to craft input so that the final string would become
+larger than `PRINTF_BUFSIZ`, they can exploit this bug to overwrite a '\n',
+'\r' or ' ' byte (or a sequence of such bytes) with a NUL byte in memory past
+the end of the `_printf_buf` static buffer. In addition, the tainted `len`
+value is returned at the end of the `_lib_printf()` function and may be used
+unsafely (e.g., as an array index) elsewhere in the code.
+
+See the marked lines below:
+```c
+static char _printf_buf[PRINTF_BUFSIZ];
+
+static int _lib_printf(int level, const char* tag, const char* format, va_list arg)
+{
+    if (level > LOG_LEVEL) {
+        return 0;
+    }
+
+    int len = vsnprintf(_printf_buf, PRINTF_BUFSIZ - 1, format, arg); // VULN: vsnprintf() returns the total length of the string it tried to create, which may be larger than the actual size of the destination string
+
+    /*
+     * Since ESP_EARLY_LOG macros add a line break at the end, a terminating
+     * line break in the output must be removed if there is one.
+     */
+    _printf_buf[PRINTF_BUFSIZ - 1] = 0;
+    int i;
+    for (i = len - 1; i >= 0; --i) {
+        if (_printf_buf[i] != '\n' && _printf_buf[i] != '\r' && _printf_buf[i] != ' ') {
+            break;
+        }
+        _printf_buf[i] = 0; // VULN: very limited oob array write access
+    }
+    if (i > 0) {
+        ESP_EARLY_LOGI(tag, "%s", _printf_buf);
+    }
+    va_end(arg);
+    return len; // VULN: tainted len value is returned
+}
+```
+
+In our understanding, the impact of this vulnerability in this specific case is
+quite limited. However, all bugs that have the potential to cause memory
+corruption should be taken seriously and fixed as security bugs.
+
+Fixes:
+https://github.com/RIOT-OS/RIOT/pull/20596
+
+See also:
+https://github.com/RIOT-OS/RIOT/security/advisories/GHSA-x3j5-hfrr-5x6q
+
+
+--[ 3.5 - Ineffective size check due to assert() and buffer overflow in RIOT /sys/net/ble/skald/skald_eddystone.c
+
+We spotted an ineffective size check implemented via `assert()` that may lead
+to a buffer overflow in RIOT source code at:
+
+* /sys/net/ble/skald/skald_eddystone.c
+
+Most codebases define assertion macros which compile to a no-op on non-debug
+builds. If assertions are the only line of defense against untrusted input, the
+software may be exposed to attacks that leverage the lack of proper input
+checks. 
+
+In detail, in the `skald_eddystone_url_adv()` function below, `len` is checked
+in an assertion and subsequently used in a call to `memcpy()`. If an attacker
+is able to provide a large `url` while assertions are compiled-out, they can
+write past the end of the `pdu->url` buffer.
+
+See the marked lines below:
+```c
+void skald_eddystone_url_adv(skald_ctx_t *ctx,
+                             uint8_t scheme, const char *url, uint8_t tx_pwr,
+                             uint32_t adv_itvl_ms)
+{
+    assert(url && ctx);
+    size_t len = strlen(url);
+    assert(len <= (NETDEV_BLE_PDU_MAXLEN - (URL_HDR_LEN + PREAMBLE_LEN))); // VULN: len is checked only via an assertion
+
+    eddy_url_t *pdu = (eddy_url_t *)ctx->pkt.pdu;
+    _init_pre(&pdu->pre, EDDYSTONE_URL, (URL_HDR_LEN + len));
+
+    /* set remaining service data fields */
+    pdu->tx_pwr = tx_pwr;
+    pdu->scheme = scheme;
+    memcpy(pdu->url, url, len); // VULN: if len is actually larger than expected there's a potential buffer overflow
+
+    /* start advertising */
+    ctx->pkt.len = (sizeof(pre_t) + 2 + len);
+    ctx->adv_itvl_ms = adv_itvl_ms;
+    skald_adv_start(ctx);
+}
+```
+
+If the unchecked input above is attacker-controlled and crosses a security
+boundary, the impact of the buffer overflow vulnerability could range from
+denial of service to arbitrary code execution.
+
+Fixes:
+https://github.com/RIOT-OS/RIOT/pull/20577
+
+See also:
+https://github.com/RIOT-OS/RIOT/security/advisories/GHSA-pw2r-pp35-xfmj
+
+
+--[ 3.6 - Ineffective size check due to assert() and buffer overflow in RIOT /sys/suit/handlers_command_seq.c
+
+We spotted an ineffective size check implemented via `assert()` that may lead
+to a buffer overflow in RIOT source code at:
+
+* /sys/suit/handlers_command_seq.c
+
+Most codebases define assertion macros which compile to a no-op on non-debug
+builds. If assertions are the only line of defense against untrusted input, the
+software may be exposed to attacks that leverage the lack of proper input
+checks. 
+
+In detail, in the `_dtv_fetch()` function below, `url_len` is checked in an
+assertion and subsequently used in a call to `memcpy()`. If an attacker is able
+to provide a large `url` while assertions are compiled-out, they can write past
+the end of the `manifest->urlbuf` buffer.
+
+See the marked lines below:
+```c
+static int _dtv_fetch(suit_manifest_t *manifest, int key,
+                      nanocbor_value_t *_it)
+{
+    (void)key; (void)_it;
+    LOG_DEBUG("_dtv_fetch() key=%i\n", key);
+
+    const uint8_t *url;
+    size_t url_len;
+
+    /* Check the policy before fetching anything */
+    int res = suit_policy_check(manifest);
+    if (res) {
+        return SUIT_ERR_POLICY_FORBIDDEN;
+    }
+
+    suit_component_t *comp = _get_component(manifest);
+
+    /* Deny the fetch if the component was already fetched before */
+    if (suit_component_check_flag(comp, SUIT_COMPONENT_STATE_FETCHED)) {
+        LOG_ERROR("Component already fetched before\n");
+        return SUIT_ERR_INVALID_MANIFEST;
+    }
+
+    nanocbor_value_t param_uri;
+    suit_param_ref_to_cbor(manifest, &comp->param_uri,
+                           &param_uri);
+    int err = nanocbor_get_tstr(&param_uri, &url, &url_len);
+    if (err < 0) {
+        LOG_DEBUG("URL parsing failed\n)");
+        return err;
+    }
+
+    assert(manifest->urlbuf && url_len < manifest->urlbuf_len); // VULN: url_len is checked only via an assertion
+    memcpy(manifest->urlbuf, url, url_len); // VULN: if url_len is actually larger than expected there's a potential buffer overflow
+    manifest->urlbuf[url_len] = '\0';
+...
+```
+
+If the unchecked input above is attacker-controlled and crosses a security
+boundary, the impact of the buffer overflow vulnerability could range from
+denial of service to arbitrary code execution.
+
+Fixes:
+https://github.com/RIOT-OS/RIOT/pull/20559
+
+See also:
+https://github.com/RIOT-OS/RIOT/security/advisories/GHSA-c4p4-vv7v-3hx8
+
+
+--[ 3.7 - Integer wraparound and buffer overflow in RIOT /drivers/mtd_emulated/mtd_emulated.c
+
+We spotted an integer wraparound in a size check that leads to a buffer
+overflow in RIOT source code at:
+
+* /drivers/mtd_emulated/mtd_emulated.c
+
+If an attacker is able to provide arbitrary values for the `num` and `sector`
+arguments to the `_erase_sector()` function, they can cause an integer
+wraparound to bypass the size check and cause a buffer overflow.
+
+See the marked lines below:
+```c
+static int _erase_sector(mtd_dev_t *dev, uint32_t sector, uint32_t num)
+{
+    mtd_emulated_t *mtd = (mtd_emulated_t *)dev;
+
+    (void)mtd;
+    assert(mtd);
+
+    if (/* sector must not exceed the number of sectors */
+        (sector >= mtd->base.sector_count) ||
+        /* sector + num must not exceed the number of sectors */
+        ((sector + num) > mtd->base.sector_count)) { // VULN: integer wraparound in size check
+        return -EOVERFLOW;
+    }
+
+    memset(mtd->memory + (sector * (mtd->base.pages_per_sector * mtd->base.page_size)),
+           0xff, num * (mtd->base.pages_per_sector * mtd->base.page_size)); // VULN: buffer overflow
+
+    return 0;
+}
+```
+
+We put together a quick proof-of-concept to demonstrate this issue:
+```
+raptor@blumenkraft Research % cat wraparound5.c
+#include <stdio.h>
+#include <stdlib.h>
+#include <inttypes.h>
+
+#define SECTOR_COUNT 256
+
+static int _erase_sector(uint32_t sector, uint32_t num)
+{
+    if (/* sector must not exceed the number of sectors */
+        (sector >= SECTOR_COUNT) ||
+        /* sector + num must not exceed the number of sectors */
+        ((sector + num) > SECTOR_COUNT)) { // VULN: wraparound
+        printf("OVERFLOW\n");
+	return 1;
+    }
+
+    printf("sector + num = %"PRIu32"\n", sector + num);
+
+    return 0;
+}
+
+int main(int argc, char **argv)
+{
+	if (argc < 3)
+		return 1;
+
+	return _erase_sector(atoi(argv[1]), atoi(argv[2]));
+}
+raptor@blumenkraft Research % make wraparound5
+cc     wraparound5.c   -o wraparound5
+raptor@blumenkraft Research % ./wraparound5 250 10
+OVERFLOW
+raptor@blumenkraft Research % ./wraparound5 250 4294967295
+sector + num = 249
+```
+
+If the input above is attacker-controlled and crosses a security boundary, the
+impact of the buffer overflow vulnerability could range from denial of service
+to (less likely in this case) arbitrary code execution.
+
+Fixes:
+https://github.com/RIOT-OS/RIOT/pull/20587
+
+See also:
+https://github.com/RIOT-OS/RIOT/security/advisories/GHSA-r87w-9vw9-f7cx
+
+
+--[ 3.8 - Off-by-one buffer overflow and unterminated string in RIOT /pkg/lwext4/fs/lwext4_fs.c
+
+We spotted an off-by-one buffer overflow in RIOT source code at:
+
+* /pkg/lwext4/fs/lwext4_fs.c
+
+We also spotted the lack of explicit NUL-termination after strncpy() in the
+same file.
+
+If an attacker is able to make `mount_point` at least `CONFIG_EXT4_MAX_MP_NAME`
+bytes large, `strcat()` would write a NUL byte past the end of the `mp.name`
+buffer, thus potentially overwriting the next member of the `ext4_mountpoint`
+struct [7].
+
+See the marked line below:
+```c
+static int prepare(lwext4_desc_t *fs, const char *mount_point)
+{
+    mtd_dev_t *dev = fs->dev;
+    struct ext4_blockdev_iface *iface = &fs->iface;
+
+    memset(&fs->mp, 0, sizeof(fs->mp));
+    memset(&fs->bdev, 0, sizeof(fs->bdev));
+    memset(&fs->iface, 0, sizeof(fs->iface));
+
+    strncpy(fs->mp.name, mount_point, CONFIG_EXT4_MAX_MP_NAME);
+    strcat(fs->mp.name, "/"); // VULN: off-by-one buffer overflow
+
+    int res = mtd_init(dev);
+    if (res) {
+        return res;
+    }
+...
+```
+
+Since `sizeof(dirent->name)` is 255 and `sizeof(entry->d_name)` is only 32, if
+an attacker can control the input to `strncpy()` they would be able to create a
+non NUL-terminated string in `entry->d_name`. When such corrupted string is
+used in other parts of the code, it may cause information leakage or memory
+corruption.
+
+See the marked line below:
+```c
+static int _readdir(vfs_DIR *dirp, vfs_dirent_t *entry)
+{
+    ext4_dir *dir = _get_ext4_dir(dirp);
+
+    const ext4_direntry *dirent = ext4_dir_entry_next(dir);
+    if (dirent == NULL) {
+        return 0;
+    }
+
+    strncpy(entry->d_name, (char *)dirent->name, sizeof(entry->d_name)); // VULN
+
+    return 1;
+}
+```
+
+In our understanding, the impact of these vulnerabilities in this specific case
+is quite limited. However, all bugs that have the potential to cause memory
+corruption should be taken seriously and fixed as security bugs.
+
+Fixes:
+https://github.com/RIOT-OS/RIOT/pull/20586
+
+See also:
+https://github.com/RIOT-OS/RIOT/security/advisories/GHSA-2hx7-c324-3rxv
+
+
+--[ 3.9 - Unsafe use of the return value of snprintf() and out-of-bounds memory access in RIOT /sys/shell/cmds/vfs.c
+
+We spotted an unsafe use of the return value of `snprintf()` that leads to an
+out-of-bounds memory access in RIOT source code at:
+
+* /sys/shell/cmds/vfs.c
+
+The `snprintf()` function returns the number of characters (excluding the
+terminating NUL byte) which would have been written to the destination string
+if enough space had been available. 
+
+If an attacker is able to craft input so that the final string would become
+larger than `bs`, they can exploit this bug to cause a buffer overflow.
+
+See the marked lines below:
+```c
+static void _write_block(int fd, unsigned bs, unsigned i)
+{
+    char block[bs];
+    char *buf = block;
+
+    buf += snprintf(buf, bs, "|%03u|", i); // VULN: snprintf() returns the total length of the string it tried to create, which may be larger than bs
+
+    memset(buf, _get_char(i), &block[bs] - buf); // VULN: buf can point past the block buffer, in addition &block[bs] - buf would be negative and become a large unsigned value
+    block[bs - 1] = '\n';
+
+    vfs_write(fd, block, bs);
+}
+```
+
+We put together a quick proof-of-concept to demonstrate this issue:
+```
+raptor@blumenkraft Research % cat ret1.c
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+
+static char _get_char(unsigned i)
+{
+    i %= 62; /* a-z, A-Z, 0..9, -> 62 characters */
+
+    if (i < 10) {
+        return '0' + i;
+    }
+    i -= 10;
+
+    if (i <= 'z' - 'a') {
+        return 'a' + i;
+    }
+    i -= 1 + 'z' - 'a';
+
+    return 'A' + i;
+}
+
+static void _write_block(unsigned bs, unsigned i)
+{
+    char block[bs];
+    char *buf = block;
+
+    buf += snprintf(buf, bs, "|%03u|", i); // VULN: unsafe use of return value
+
+    memset(buf, _get_char(i), &block[bs] - buf); // VULN: oob memory write, size becomes a large unsigned value
+    block[bs - 1] = '\n';
+}
+
+int main(int argc, char **argv)
+{
+	if (argc < 3)
+		return 1;
+
+	_write_block(atoi(argv[1]), atoi(argv[2]));
+
+	return 0;
+}
+raptor@blumenkraft Research % make ret1
+cc     ret1.c   -o ret1
+raptor@blumenkraft Research % ./ret1 5 10
+raptor@blumenkraft Research % ./ret1 5 1000000
+zsh: segmentation fault  ./ret1 5 1000000
+```
+
+If the input above is attacker-controlled and crosses a security boundary, the
+impact of the buffer overflow vulnerability could range from denial of service
+to (less likely in this case) arbitrary code execution.
+
+Fixes:
+https://github.com/RIOT-OS/RIOT/pull/20546
+https://github.com/RIOT-OS/RIOT/pull/20595
+
+See also:
+https://github.com/RIOT-OS/RIOT/security/advisories/GHSA-frp5-4gfp-84j3
+
+
+--[ 3.10 - Lack of size checks and buffer overflows in RIOT /sys/net/application_layer/emcute/emcute.c
+
+We spotted the lack of size checks that may lead to buffer overflows in RIOT
+source code at:
+
+* /sys/net/application_layer/emcute/emcute.c
+
+The `emcute_con()` function does not implement a size check before copying data
+to the `tbuf` static buffer. If an attacker can craft a long enough payload,
+they could cause a buffer overflow.
+
+See the marked line below:
+```c
+int emcute_con(sock_udp_ep_t *remote, bool clean, const char *will_topic,
+               const void *will_msg, size_t will_msg_len, unsigned will_flags)
+{
+    int res;
+    size_t len;
+
+    assert(!will_topic || (will_topic && will_msg && !(will_flags & ~PUB_FLAGS)));
+
+    mutex_lock(&txlock);
+
+    /* check for existing connections and copy given UDP endpoint */
+    if (gateway.port != 0) {
+        return EMCUTE_NOGW;
+    }
+    memcpy(&gateway, remote, sizeof(sock_udp_ep_t));
+
+    /* figure out which flags to set */
+    uint8_t flags = (clean) ? EMCUTE_CS : 0;
+    if (will_topic) {
+        flags |= EMCUTE_WILL;
+    }
+
+    /* compute packet size */
+    len = (strlen(cli_id) + 6);
+    tbuf[0] = (uint8_t)len;
+    tbuf[1] = CONNECT;
+    tbuf[2] = flags;
+    tbuf[3] = PROTOCOL_VERSION;
+    byteorder_htobebufs(&tbuf[4], CONFIG_EMCUTE_KEEPALIVE);
+    memcpy(&tbuf[6], cli_id, strlen(cli_id)); // VULN: lack of size check and potential buffer overflow
+...
+```
+
+The `emcute_unsub()` function does not implement a size check before copying
+data to the `tbuf` static buffer. If an attacker can craft a long enough
+payload, they could cause a buffer overflow.
+
+See the marked line below:
+```c
+int emcute_unsub(emcute_sub_t *sub)
+{
+    assert(sub && sub->topic.name);
+
+    if (gateway.port == 0) {
+        return EMCUTE_NOGW;
+    }
+
+    mutex_lock(&txlock);
+
+    tbuf[0] = (strlen(sub->topic.name) + 5);
+    tbuf[1] = UNSUBSCRIBE;
+    tbuf[2] = 0;
+    byteorder_htobebufs(&tbuf[3], id_next);
+    waitonid = id_next++;
+    memcpy(&tbuf[5], sub->topic.name, strlen(sub->topic.name)); // VULN: lack of size check and potential buffer overflow
+
+    int res = syncsend(UNSUBACK, (size_t)tbuf[0], false);
+    if (res == EMCUTE_OK) {
+        if (subs == sub) {
+            subs = sub->next;
+        }
+        else {
+            emcute_sub_t *s;
+            for (s = subs; s; s = s->next) {
+                if (s->next == sub) {
+                    s->next = sub->next;
+                    break;
+                }
+            }
+        }
+    }
+
+    mutex_unlock(&txlock);
+    return res;
+}
+```
+
+If the unchecked input above is attacker-controlled and crosses a security
+boundary, the impact of the buffer overflow vulnerabilities could range from
+denial of service to arbitrary code execution.
+
+There is currently no fix for these issues. RIOT maintainers do not consider
+them to be security critical bugs and therefore they are currently discussing
+them publicly.
+
+See also:
+https://github.com/RIOT-OS/RIOT/security/advisories/GHSA-x27v-gqp4-7jq3
+
+
+--[ 4 - Affected products
+
+RIOT 2024.01 and (likely) earlier versions are affected by the vulnerabilities
+discussed in this advisory.
+
+
+--[ 5 - Remediation
+
+RIOT maintainers have fixed all the vulnerabilities discussed in this advisory,
+except for those reported in GHSA-x27v-gqp4-7jq3, which are not considered
+security critical bugs and are currently being discussed publicly.
+
+Please check the official RIOT channels for further information about fixes.
+
+
+--[ 6 - Disclosure timeline
+
+We reported the vulnerabilities discussed in this advisory to RIOT maintainers
+in January 2024, via the handy private reporting feature [8] that is available
+on GitHub.
+
+We are not sure of the reason of the significant delay in the initial
+maintainers' response. However, once we got their attention they quickly
+triaged and fixed all vulnerabilities. They also informed us that:
+
+* They are treating such delay as an additional security incident.
+* They added another maintainer to the security group as an immediate action.
+* They plan on discussing this shortcoming on the next maintainer assembly to
+  find a long term solution.
+
+The coordinated disclosure timeline follows:
+
+2024-01-10: Reported the first vulnerability to the RIOT project.
+2024-01-11: Reported four more vulnerabilities.
+2024-01-12: Reported the rest of the vulnerabilities.
+2024-02-09: Asked for feedback on <security@riot-os.org>.
+2024-03-05: Asked again for feedback on <security@riot-os.org>.
+2024-04-05: Asked again for feedback via GitHub and got the first reply.
+2024-04-06: Started collaborating with RIOT to evaluate proposed fixes.
+2024-04-10: First security advisory published on GitHub.
+2024-04-17: Another security advisory published on GitHub.
+2024-04-24: Asked for a status update on the remaining reports.
+2024-04-25: Two more security advisories published on GitHub.
+2024-04-26: Another security advisory published on GitHub.
+2024-04-30: Three more security advisories published on GitHub.
+2024-05-07: Published advisory and writeup.
+
+
+--[ 7 - Acknowledgments
+
+We would like to thank RIOT maintainers for triaging and fixing the reported
+vulnerabilities in a particularly friendly and professional way. We really
+appreciated working with them!
+
+
+--[ 8 - References
+
+[1] https://www.riot-os.org/
+[2] https://github.com/RIOT-OS/RIOT
+[3] https://security.humanativaspa.it/ost2-zephyr-rtos-and-a-bunch-of-cves/
+[4] https://security.humanativaspa.it/multiple-vulnerabilities-in-rt-thread-rtos/
+[5] https://security.humanativaspa.it/big-update-to-my-semgrep-c-cpp-ruleset/
+[6] https://security.humanativaspa.it/a-collection-of-weggli-patterns-for-c-cpp-vulnerability-research/
+[7] https://github.com/gkostka/lwext4/blob/58bcf89a121b72d4fb66334f1693d3b30e4cb9c5/src/ext4.c#L75
+[8] https://docs.github.com/en/code-security/security-advisories
+
+
+Copyright (c) 2024 Marco Ivaldi and Humanativa Group. All rights reserved.
