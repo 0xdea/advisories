@@ -1,0 +1,737 @@
+--[ HNS-2024-06 - HN Security Advisory - https://security.humanativaspa.it/
+
+* Title: Multiple vulnerabilities in Eclipse ThreadX
+* OS: Eclipse ThreadX < 6.4.0
+* Author: Marco Ivaldi <marco.ivaldi@hnsecurity.it>
+* Date: 2024-05-28
+* CVE IDs and severity:
+  * CVE-2024-2214 - High - 7.0 - CVSS:3.1/AV:L/AC:H/PR:N/UI:R/S:U/C:H/I:H/A:H
+  * CVE-2024-2212 - High - 7.3 - CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:L
+  * CVE-2024-2452 - High - 7.0 - CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:H/A:L
+* Advisory URLs: 
+  * https://github.com/eclipse-threadx/threadx/security/advisories/GHSA-vmp6-qhp9-r66x
+  * https://github.com/eclipse-threadx/threadx/security/advisories/GHSA-v9jj-7qjg-h6g6
+  * https://github.com/eclipse-threadx/netxduo/security/advisories/GHSA-h963-7vhw-8rpx
+* Vendor URL: https://threadx.io/
+
+
+--[ 0 - Table of contents
+
+1 - Summary
+2 - Background
+3 - Vulnerabilities
+    3.1 - CVE-2024-2214 - Ineffective array size check and static buffer overflow in Eclipse ThreadX
+    3.2 - CVE-2024-2212 - Integer wraparounds, under-allocations, and heap buffer overflows in in Eclipse ThreadX
+    3.3 - CVE-2024-2452 - Integer wraparound, under-allocation, and heap buffer overflow in Eclipse ThreadX NetX Duo
+    3.4 - Other bugs with potential security implications in Eclipse ThreadX NetX Duo and USBX
+4 - Affected products
+5 - Remediation
+6 - Disclosure timeline
+7 - Acknowledgments
+8 - References
+
+
+--[ 1 - Summary
+
+"Why don’t you pick on projects your own size, 
+quit tormenting the tiny ones!" 
+                                  -- The Grugq
+
+Azure RTOS was Microsoft's real-time operating system for IoT devices. At the
+beginning of 2024, Microsoft contributed the Azure RTOS technology to the
+Eclipse Foundation [1]. With the Eclipse Foundation as its new home, Azure RTOS
+was rebranded as Eclipse ThreadX.
+
+Eclipse ThreadX is an advanced embedded development suite including a small but
+powerful operating system that provides reliable, ultra-fast performance for
+resource-constrained devices. It offers a vendor-neutral, open source, safety
+certified OS for real-time applications, all under a permissive license. 
+
+We reviewed ThreadX's source code hosted on GitHub [2] and identified multiple
+security vulnerabilities that may cause memory corruption. Their impacts range
+from denial of service to potential arbitrary code execution.
+
+
+--[ 2 - Background
+
+Continuing our recent vulnerability research work in the IoT space [3] [4] [5],
+we keep assisting open-source projects in finding and fixing vulnerabilities by
+reviewing their source code. In December 2023, Azure RTOS, which one month
+later was rebranded as Eclipse ThreadX, was selected as a target of interest.
+
+During the source code review, we made use of our Semgrep C/C++ ruleset [6] and
+weggli pattern collection [7] to identify hotspots in code on which to focus
+our attention.
+
+
+--[ 3 - Vulnerabilities
+
+The vulnerabilities resulting from our source code review are briefly described
+in the following sections.
+
+
+--[ 3.1 - CVE-2024-2214 - Ineffective array size check and static buffer overflow in Eclipse ThreadX
+
+In Eclipse ThreadX before version 6.4.0, the `_Mtxinit()` function in the
+Xtensa port was missing an array size check causing a memory overwrite.
+
+The vulnerability was spotted in the following file:
+* /ports/xtensa/xcc/src/tx_clib_lock.c
+
+There was no error handling in case `lcnt` >= `XT_NUM_CLIB_LOCKS`. The program
+would continue and the `tx_mutex_create()` would eventually corrupt memory by
+writing outside the bounds of the `xclib_locks` static array:
+```c
+#ifdef TX_THREAD_SAFE_CLIB    /* this file is only needed if using C lib */
+...
+#if XSHAL_CLIB == XTHAL_CLIB_XCLIB
+...
+static TX_MUTEX xclib_locks[XT_NUM_CLIB_LOCKS];
+static uint32_t lcnt;
+...
+/**************************************************************************/
+/*    _Mtxinit - initialize a lock. Called once for each lock.            */
+/**************************************************************************/
+void
+_Mtxinit (_Rmtx * mtx)
+{
+    TX_MUTEX * lock;
+
+    if (lcnt >= XT_NUM_CLIB_LOCKS) { // VULN: empty if() body
+        /* Fatal error */
+    }
+
+    lock = &(xclib_locks[lcnt]);
+    lcnt++;
+
+    /* See notes for newlib case below. */
+#ifdef THREADX_TESTSUITE
+    tx_mutex_create (lock, "Clib lock", 0);
+#else
+    tx_mutex_create (lock, "Clib lock", TX_INHERIT);
+#endif
+
+    *mtx = lock;
+}
+```
+
+Fixes:
+https://github.com/eclipse-threadx/threadx/pull/340
+
+See also:
+https://github.com/eclipse-threadx/threadx/security/advisories/GHSA-vmp6-qhp9-r66x
+
+
+--[ 3.2 - CVE-2024-2212 - Integer wraparounds, under-allocations, and heap buffer overflows in in Eclipse ThreadX
+
+In Eclipse ThreadX before version 6.4.0, functions `xQueueCreate()` and
+`xQueueCreateSet()` from the FreeRTOS compatibility API were missing parameter
+checks. This could lead to integer wraparound, under-allocations, and heap
+buffer overflows.
+
+The vulnerabilities were spotted in the following file:
+* /utility/rtos_compatibility_layers/FreeRTOS/tx_freertos.c
+
+If an attacker could control `uxQueueLength` or `uxItemSize`, they could cause
+an integer wraparound thus causing `txfr_malloc()` to allocate a small amount
+of memory, exposing to subsequent heap buffer overflows (AKA BadAlloc-style
+memory corruption):
+```c
+QueueHandle_t xQueueCreate(UBaseType_t uxQueueLength, UBaseType_t uxItemSize)
+{
+    txfr_queue_t *p_queue;
+    void *p_mem;
+    size_t mem_size;
+    UINT ret;
+
+    configASSERT(uxQueueLength != 0u);
+    configASSERT(uxItemSize >= sizeof(UINT));
+
+#if (TX_FREERTOS_AUTO_INIT == 1)
+    if(txfr_initialized != 1u) {
+        tx_freertos_auto_init();
+    }
+#endif
+
+    p_queue = txfr_malloc(sizeof(txfr_queue_t));
+    if(p_queue == NULL) {
+        return NULL;
+    }
+
+    mem_size = uxQueueLength*(uxItemSize);
+
+    p_mem = txfr_malloc(mem_size); // VULN: integer wraparound and under-allocation
+    if(p_mem == NULL) {
+        txfr_free(p_queue);
+        return NULL;
+    }
+
+    TX_MEMSET(p_mem, 0, mem_size);
+    TX_MEMSET(p_queue, 0, sizeof(*p_queue));
+    p_queue->allocated = 1u;
+    p_queue->p_mem = p_mem;
+    p_queue->id = TX_QUEUE_ID;
+
+    p_queue->p_write = (uint8_t *)p_mem;
+    p_queue->p_read = (uint8_t *)p_mem;
+    p_queue->msg_size = uxItemSize;
+    p_queue->queue_length = uxQueueLength;
+
+    ret = tx_semaphore_create(&p_queue->read_sem, "", 0u);
+    if(ret != TX_SUCCESS) {
+        return NULL;
+    }
+
+    ret = tx_semaphore_create(&p_queue->write_sem, "", uxQueueLength);
+    if(ret != TX_SUCCESS) {
+        return NULL;
+    }
+
+    return p_queue;
+}
+```
+
+If an attacker could control `uxEventQueueLengthi`, they could cause an integer
+wraparound thus causing `txfr_malloc()` to allocate a small amount of memory,
+exposing to subsequent heap buffer overflows (AKA BadAlloc-style memory
+corruption):
+```c
+QueueSetHandle_t xQueueCreateSet(const UBaseType_t uxEventQueueLength)
+{
+    txfr_queueset_t *p_set;
+    void *p_mem;
+    ULONG queue_size;
+    UINT ret;
+
+    configASSERT(uxEventQueueLength != 0u);
+
+#if (TX_FREERTOS_AUTO_INIT == 1)
+    if(txfr_initialized != 1u) {
+        tx_freertos_auto_init();
+    }
+#endif
+
+    p_set = txfr_malloc(sizeof(txfr_queueset_t));
+    if(p_set == NULL) {
+        return NULL;
+    }
+
+    queue_size = sizeof(void *) * uxEventQueueLength;
+    p_mem = txfr_malloc(queue_size); // VULN: integer wraparound and under-allocation
+    if(p_mem == NULL) {
+        txfr_free(p_set);
+        return NULL;
+    }
+
+    ret = tx_queue_create(&p_set->queue, "", sizeof(void *) / sizeof(UINT), p_mem, queue_size);
+    if(ret != TX_SUCCESS) {
+        TX_FREERTOS_ASSERT_FAIL();
+        return NULL;
+    }
+
+    return p_set;
+}
+```
+
+These functions are part of an external API to be used by user's applications.
+The values of those parameters passed to the vulnerable functions depend on
+user's code.
+
+Fixes:
+https://github.com/eclipse-threadx/threadx/pull/339
+
+See also:
+https://github.com/eclipse-threadx/threadx/security/advisories/GHSA-v9jj-7qjg-h6g6
+
+
+--[ 3.3 - CVE-2024-2452 - Integer wraparound, under-allocation, and heap buffer overflow in Eclipse ThreadX NetX Duo
+
+In Eclipse ThreadX NetX Duo before version 6.4.0, if an attacker could control
+the parameters of `__portable_aligned_alloc()` they could cause an integer
+wraparound and an allocation smaller than expected. This could cause subsequent
+heap buffer overflows.
+
+The vulnerability was spotted in the following file:
+* /addons/azure_iot/azure_iot_security_module/iot-security-module-core/deps/flatcc/include/flatcc/portable/paligned_alloc.h
+
+If an attacker could control the `size` or `alignment` arguments to the
+`__portable_aligned_alloc()` function, they could cause an integer wraparound
+thus causing `malloc()` to allocate a small amount of memory, exposing to
+subsequent heap buffer overflows (AKA BadAlloc-style memory corruption):
+```c
+static inline void *__portable_aligned_alloc(size_t alignment, size_t size)
+{
+    char *raw;
+    void *buf;
+    size_t total_size = (size + alignment - 1 + sizeof(void *)); // VULN: integer wraparound
+
+    if (alignment < sizeof(void *)) {
+        alignment = sizeof(void *);
+    }
+    raw = (char *)(size_t)malloc(total_size); // VULN: under-allocation BadAlloc style
+    buf = raw + alignment - 1 + sizeof(void *);
+    buf = (void *)(((size_t)buf) & ~(alignment - 1));
+    ((void **)buf)[-1] = raw; // malloc ret is not checked; in case NULL is returned the program would crash here
+    return buf;
+}
+```
+
+We spotted the same vulnerability in Azure IoT Preview source code at:
+https://github.com/azure-rtos/azure-iot-preview/blob/master/azure_iot/azure_iot_security_module/iot-security-module-core/deps/flatcc/include/flatcc/portable/paligned_alloc.h
+
+The maintainers confirmed the vulnerability, but informed us that the Azure IoT
+Preview repository was not part of a product. Therefore, it was removed
+entirely.
+
+Fixes:
+https://github.com/eclipse-threadx/netxduo/pull/227
+
+See also:
+https://github.com/eclipse-threadx/netxduo/security/advisories/GHSA-h963-7vhw-8rpx
+
+
+--[ 3.4 - Other bugs with potential security implications in Eclipse ThreadX NetX Duo and USBX
+
+In addition to the vulnerabilities covered in the previous sections, we also
+reported a few other bugs with potential security implications that were not
+considered as vulnerabilities by Eclipse ThreadX maintainers. As such, our
+reports were declassed to standard issues for code improvement.
+
+The first one is an unsafe use of the return value of `snprintf()` that we
+observed in Eclipse ThreadX NetX Duo, in the following file:
+* /addons/azure_iot/nx_azure_iot_adu_agent.c
+
+The `snprintf()` API function returns the total length of the string it tried
+to create, which could be larger than the actual length written; if an attacker
+were able to craft input so that `update_id_length` became larger than
+`NX_AZURE_IOT_ADU_AGENT_UPDATE_MANIFEST_SIZE` and if the return value were used
+unsafely (e.g., as an array index) somewhere else in the code, memory
+corruption could have occured:
+```c
+static UINT nx_azure_iot_adu_agent_reported_properties_state_send(NX_AZURE_IOT_ADU_AGENT *adu_agent_ptr)
+{
+
+NX_PACKET *packet_ptr;
+NX_AZURE_IOT_JSON_WRITER json_writer;
+NX_AZURE_IOT_ADU_AGENT_UPDATE_MANIFEST_CONTENT *manifest_content = &(adu_agent_ptr -> nx_azure_iot_adu_agent_update_manifest_content);
+UINT status;
+UINT result_code;
+UINT i;
+/* Prepare the buffer for step name: such as: "step_0", the max name is "step_xxx".  */
+CHAR step_property_name[8] = "step_";
+UINT step_size = sizeof("step_") - 1;
+UINT step_property_name_size;
+UINT update_id_length;
+...
+    /* Fill installed update id.  */
+    if ((adu_agent_ptr -> nx_azure_iot_adu_agent_state == NX_AZURE_IOT_ADU_AGENT_STATE_IDLE) && 
+        (adu_agent_ptr -> nx_azure_iot_adu_agent_update_manifest_content.steps_count))
+    {
+
+        /* Use nx_azure_iot_adu_agent_update_manifest as temporary buffer to encode the update id as string.*/
+        update_id_length = (UINT)snprintf((CHAR *)adu_agent_ptr -> nx_azure_iot_adu_agent_update_manifest,
+                                          NX_AZURE_IOT_ADU_AGENT_UPDATE_MANIFEST_SIZE,
+                                          "{\"%.*s\":\"%.*s\",\"%.*s\":\"%.*s\",\"%.*s\":\"%.*s\"}",
+                                          sizeof(NX_AZURE_IOT_ADU_AGENT_PROPERTY_NAME_PROVIDER) - 1,
+                                          NX_AZURE_IOT_ADU_AGENT_PROPERTY_NAME_PROVIDER,
+                                          manifest_content -> update_id.provider_length, manifest_content -> update_id.provider, 
+                                          sizeof(NX_AZURE_IOT_ADU_AGENT_PROPERTY_NAME_NAME) - 1,
+                                          NX_AZURE_IOT_ADU_AGENT_PROPERTY_NAME_NAME,
+                                          manifest_content -> update_id.name_length, manifest_content -> update_id.name,
+                                          sizeof(NX_AZURE_IOT_ADU_AGENT_PROPERTY_NAME_VERSION) - 1,
+                                          NX_AZURE_IOT_ADU_AGENT_PROPERTY_NAME_VERSION,
+                                          manifest_content -> update_id.version_length, manifest_content -> update_id.version); // VULN: unsafe use of snprintf() return value
+
+        if (nx_azure_iot_json_writer_append_property_with_string_value(&json_writer,
+                                                                       (const UCHAR *)NX_AZURE_IOT_ADU_AGENT_PROPERTY_NAME_INSTALLED_CONTENT_ID,
+                                                                       sizeof(NX_AZURE_IOT_ADU_AGENT_PROPERTY_NAME_INSTALLED_CONTENT_ID) - 1,
+                                                                       adu_agent_ptr -> nx_azure_iot_adu_agent_update_manifest,
+                                                                       update_id_length)) // VULN: potentially large length is used to populate the "installedUpdateId" JSON property
+        {
+            nx_packet_release(packet_ptr);
+            return (NX_NOT_SUCCESSFUL);
+        }
+    }
+...
+```
+
+We also spotted some potentially ineffective size checks due to assertions in
+Eclipse ThreadX USBX, in the following files:
+* /common/core/src/ux_hcd_sim_host_transaction_schedule.c
+* /common/usbx_device_classes/src/ux_device_class_audio20_control_process.c
+
+If assertions were compiled-out in production code and `td ->
+ux_sim_host_td_length` was attacker-controlled, the `_ux_utility_memory_copy()`
+function would have been able to write past the `slave_transfer_request ->
+ux_slave_transfer_request_setup` fixed-size (8 bytes) buffer:
+```c
+UINT  _ux_hcd_sim_host_transaction_schedule(UX_HCD_SIM_HOST *hcd_sim_host, UX_HCD_SIM_HOST_ED *ed)
+{
+
+UX_DCD_SIM_SLAVE        *dcd_sim_slave;
+UX_HCD_SIM_HOST_TD      *td;
+UX_HCD_SIM_HOST_TD      *head_td;
+UX_HCD_SIM_HOST_TD      *tail_td;
+UX_HCD_SIM_HOST_TD      *data_td;
+UX_ENDPOINT             *endpoint;
+UX_SLAVE_ENDPOINT       *slave_endpoint;
+UX_DCD_SIM_SLAVE_ED     *slave_ed;
+ULONG                   slave_transfer_remaining;
+UCHAR                   wake_host;
+UCHAR                   wake_slave;
+ULONG                   transaction_length;
+ULONG                   td_length;
+UX_SLAVE_TRANSFER       *slave_transfer_request;
+UX_TRANSFER             *transfer_request;
+ULONG                   endpoint_index;
+UX_SLAVE_DCD            *dcd;
+
+    UX_PARAMETER_NOT_USED(hcd_sim_host);
+
+    /* Get the pointer to the DCD portion of the simulator.  */
+    dcd =  &_ux_system_slave -> ux_system_slave_dcd;
+
+    /* Check the state of the controller if OPERATIONAL .  */
+    if (dcd -> ux_slave_dcd_status !=  UX_DCD_STATUS_OPERATIONAL)
+        return(UX_ERROR);
+
+    /* Get the pointer to the candidate TD on the host.  */
+    td =  ed -> ux_sim_host_ed_head_td;
+
+    /* Get the pointer to the endpoint.  */
+    endpoint =  ed -> ux_sim_host_ed_endpoint;
+
+    /* Get the pointer to the transfer_request attached with this TD.  */
+    transfer_request =  td -> ux_sim_host_td_transfer_request;
+
+    /* Get the index of the endpoint from the host.  */
+    endpoint_index = endpoint -> ux_endpoint_descriptor.bEndpointAddress & ~(ULONG)UX_ENDPOINT_DIRECTION;
+
+    /* Get the address of the device controller.  */
+    dcd_sim_slave =  (UX_DCD_SIM_SLAVE *) dcd -> ux_slave_dcd_controller_hardware;
+
+    /* Get the endpoint as seen from the device side.  */
+#ifdef UX_DEVICE_BIDIRECTIONAL_ENDPOINT_SUPPORT
+    slave_ed = ((endpoint -> ux_endpoint_descriptor.bEndpointAddress == 0) ?
+            &dcd_sim_slave -> ux_dcd_sim_slave_ed[0] :
+            ((endpoint -> ux_endpoint_descriptor.bEndpointAddress & UX_ENDPOINT_DIRECTION) ?
+                &dcd_sim_slave -> ux_dcd_sim_slave_ed_in[endpoint_index] :
+                &dcd_sim_slave -> ux_dcd_sim_slave_ed[endpoint_index]));
+#else
+    slave_ed =  &dcd_sim_slave -> ux_dcd_sim_slave_ed[endpoint_index];
+#endif
+
+    /* Is this ED used?  */
+    if ((slave_ed -> ux_sim_slave_ed_status & UX_DCD_SIM_SLAVE_ED_STATUS_USED) == 0)
+        return(UX_ERROR);
+
+    /* Is this ED ready for transaction or stalled ?  */
+    if ((slave_ed -> ux_sim_slave_ed_status & (UX_DCD_SIM_SLAVE_ED_STATUS_TRANSFER | UX_DCD_SIM_SLAVE_ED_STATUS_STALLED)) == 0)
+        return(UX_ERROR);
+
+    /* Get the logical endpoint from the physical endpoint.  */
+    slave_endpoint =  slave_ed -> ux_sim_slave_ed_endpoint;
+
+    /* Get the pointer to the transfer request.  */
+    slave_transfer_request =  &slave_endpoint -> ux_slave_endpoint_transfer_request;
+
+    /* Check the phase for this transfer, if this is the SETUP phase, treatment is different.  Explanation of how 
+       control transfers are handled in the simulator: if the data phase is OUT, we handle it immediately, meaning we 
+       send all the data to the device and remove the STATUS TD in the same scheduler call. If the data phase is IN, we 
+       only take out the SETUP TD and handle the data phase like any other non-control transactions (i.e. the scheduler 
+       calls us again with the DATA TDs).  */
+    if (td -> ux_sim_host_td_status &  UX_HCD_SIM_HOST_TD_SETUP_PHASE)
+    {
+
+        /* For control transfer, stall is for protocol error and it's cleared any time when SETUP is received */
+        slave_ed -> ux_sim_slave_ed_status &= ~(ULONG)UX_DCD_SIM_SLAVE_ED_STATUS_STALLED;
+
+        /* Validate the length to the setup transaction buffer.  */
+        UX_ASSERT(td -> ux_sim_host_td_length == 8); // VULN: if assertions are compiled-out in production code, this check is ineffective
+
+        /* Reset actual data length (not including SETUP received) so far.  */
+        slave_transfer_request -> ux_slave_transfer_request_actual_length =  0;
+
+        /* Move the buffer from the host TD to the device TD.  */
+        _ux_utility_memory_copy(slave_transfer_request -> ux_slave_transfer_request_setup,
+                                td -> ux_sim_host_td_buffer,
+                                td -> ux_sim_host_td_length); /* Use case of memcpy is verified. */ // VULN: potential buffer overflow due to ineffective size check
+```
+
+If assertions were compiled-out in production code and `data_length` was
+attacker-controlled, the `_ux_utility_memory_copy()` function would have been
+able to write past the `transfer -> ux_slave_transfer_request_data_pointer`
+buffer:
+```c
+...
+UINT _ux_device_class_audio20_control_process(UX_DEVICE_CLASS_AUDIO *audio,
+                                              UX_SLAVE_TRANSFER *transfer,
+                                              UX_DEVICE_CLASS_AUDIO20_CONTROL_GROUP *group)
+{
+
+UX_SLAVE_ENDPOINT                   *endpoint;
+UX_DEVICE_CLASS_AUDIO20_CONTROL     *control;
+UCHAR                               request;
+UCHAR                               request_type;
+UCHAR                               unit_id;
+UCHAR                               control_selector;
+UCHAR                               channel_number;
+ULONG                               request_length;
+ULONG                               data_length;
+ULONG                               i;
+ULONG                               n_sub, pos, min, max, res, freq;
+
+    /* Get instances.  */
+    endpoint = &audio -> ux_device_class_audio_device -> ux_slave_device_control_endpoint;
+    transfer = &endpoint -> ux_slave_endpoint_transfer_request;
+
+    /* Extract all necessary fields of the request.  */
+    request          = *(transfer -> ux_slave_transfer_request_setup + UX_DEVICE_CLASS_AUDIO_REQUEST_REQUEST);
+    request_type     = *(transfer -> ux_slave_transfer_request_setup + UX_DEVICE_CLASS_AUDIO_REQUEST_REQUEST_TYPE);
+    unit_id          = *(transfer -> ux_slave_transfer_request_setup + UX_DEVICE_CLASS_AUDIO_REQUEST_ENEITY_ID);
+    control_selector = *(transfer -> ux_slave_transfer_request_setup + UX_DEVICE_CLASS_AUDIO_REQUEST_CONTROL_SELECTOR);
+    channel_number   = *(transfer -> ux_slave_transfer_request_setup + UX_DEVICE_CLASS_AUDIO_REQUEST_CHANNEL_NUMBER);
+    request_length   = _ux_utility_short_get(transfer -> ux_slave_transfer_request_setup + UX_SETUP_LENGTH);
+
+    for (i = 0; i < group -> ux_device_class_audio20_control_group_controls_nb; i ++)
+    {
+        control = &group -> ux_device_class_audio20_control_group_controls[i];
+
+        /* Reset change map.  */
+        control -> ux_device_class_audio20_control_changed = 0;
+
+        /* Is this request a clock unit request?  */
+        if (unit_id == control -> ux_device_class_audio20_control_cs_id)
+        {
+
+            /* Clock Source request.
+             * We only support Sampling Frequency Control here.
+             * The Sampling Frequency Control must support the CUR and RANGE(MIN, MAX, RES) attributes.
+             */
+...
+            /* We just support sampling frequency control, GET request.  */
+            if ((request_type & UX_REQUEST_DIRECTION) == UX_REQUEST_IN &&
+                (control_selector == UX_DEVICE_CLASS_AUDIO20_CS_SAM_FREQ_CONTROL))
+            {
+
+                switch(request)
+                {
+                case UX_DEVICE_CLASS_AUDIO20_CUR:
+
+                    /* Check request parameter.  */
+                    if (request_length < 4)
+                        break;
+
+                    /* Send sampling frequency.  */
+                    if (control -> ux_device_class_audio20_control_sampling_frequency)
+                        _ux_utility_long_put(transfer -> ux_slave_transfer_request_data_pointer, control -> ux_device_class_audio20_control_sampling_frequency);
+                    else
+                        _ux_utility_long_put(transfer -> ux_slave_transfer_request_data_pointer, control -> ux_device_class_audio20_control_sampling_frequency_cur);
+                    _ux_device_stack_transfer_request(transfer, 4, request_length);
+                    return(UX_SUCCESS);
+
+                case UX_DEVICE_CLASS_AUDIO20_RANGE:
+
+                    /* Check request parameter.  */
+                    if (request_length < 2)
+                        break;
+
+                    if (control -> ux_device_class_audio20_control_sampling_frequency == 0)
+                    {
+
+                        /* Send range parameters, RANGE is customized.  */
+                        UX_ASSERT(control -> ux_device_class_audio20_control_sampling_frequency_range != UX_NULL);
+
+                        /* Get wNumSubRanges.  */
+                        n_sub = _ux_utility_short_get(control -> ux_device_class_audio20_control_sampling_frequency_range);
+                        UX_ASSERT(n_sub > 0);
+
+                        /* Calculate length, n_sub is 16-bit width, result not overflows ULONG.  */
+                        data_length = 2 + n_sub * 12;
+                        UX_ASSERT(data_length <= UX_SLAVE_REQUEST_CONTROL_MAX_LENGTH);  // VULN: if assertions are compiled-out in production code, this check is ineffective
+
+                        /* Copy data.  */
+                        data_length = UX_MIN(data_length, request_length);
+                        _ux_utility_memory_copy(transfer -> ux_slave_transfer_request_data_pointer,
+                                control -> ux_device_class_audio20_control_sampling_frequency_range,
+                                data_length); /* Use case of memcpy is verified. */ // VULN: potential buffer overflow due to ineffective size check
+...
+```
+
+Please note that there may be other instances/variants of these last bugs.
+Therefore, a thorough assessment of all assertions used to check buffer sizes
+in Eclipse ThreadX codebase is recommended.
+
+Finally, in Eclipse ThreadX USBX before pull request #161 was merged, there was
+a memory copy with unchecked size in the
+`_ux_host_class_pima_storage_info_get()` function in the following file:
+* /common/usbx_host_classes/src/ux_host_class_pima_storage_info_get.c
+
+There was no size check for the two memory copy operations via the
+`_ux_utility_memory_copy()` function marked below. Therefore, a write past the
+end of the fixed size (256 bytes) buffer `storage ->
+ux_host_class_pima_storage_description` could have occured:
+```c
+UINT  _ux_host_class_pima_storage_info_get(UX_HOST_CLASS_PIMA *pima,
+                                        UX_HOST_CLASS_PIMA_SESSION *pima_session,
+                                        ULONG storage_id, UX_HOST_CLASS_PIMA_STORAGE *storage)
+{
+
+UX_HOST_CLASS_PIMA_COMMAND           command;
+UINT                                 status;
+UCHAR                                *storage_buffer;
+UCHAR                                *storage_pointer;
+ULONG                                unicode_string_length;
+
+    /* If trace is enabled, insert this event into the trace buffer.  */
+    UX_TRACE_IN_LINE_INSERT(UX_TRACE_HOST_CLASS_PIMA_STORAGE_INFO_GET, pima, storage_id, storage, 0, UX_TRACE_HOST_CLASS_EVENTS, 0, 0)
+
+    /* Check if this session is valid or not.  */
+    if (pima_session -> ux_host_class_pima_session_magic != UX_HOST_CLASS_PIMA_MAGIC_NUMBER)
+        return (UX_HOST_CLASS_PIMA_RC_SESSION_NOT_OPEN);
+
+    /* Check if this session is opened or not.  */
+    if (pima_session -> ux_host_class_pima_session_state != UX_HOST_CLASS_PIMA_SESSION_STATE_OPENED)
+        return (UX_HOST_CLASS_PIMA_RC_SESSION_NOT_OPEN);
+
+    /* Issue command to get the storage IDs.  1 parameter.  */
+    command.ux_host_class_pima_command_nb_parameters =  1;
+
+    /* Parameter 1 is the Storage ID.  */
+    command.ux_host_class_pima_command_parameter_1 =  storage_id;
+
+    /* Other parameters unused.  */
+    command.ux_host_class_pima_command_parameter_2 =  0;
+    command.ux_host_class_pima_command_parameter_3 =  0;
+    command.ux_host_class_pima_command_parameter_4 =  0;
+    command.ux_host_class_pima_command_parameter_5 =  0;
+
+    /* Then set the command to GET_STORAGE_INFO.  */
+    command.ux_host_class_pima_command_operation_code =  UX_HOST_CLASS_PIMA_OC_GET_STORAGE_INFO;
+
+    /* Allocate some DMA safe memory for receiving the storage info block.  */
+    storage_buffer =  _ux_utility_memory_allocate(UX_SAFE_ALIGN, UX_CACHE_SAFE_MEMORY, UX_HOST_CLASS_PIMA_STORAGE_MAX_LENGTH);
+    if (storage == UX_NULL)
+        return(UX_MEMORY_INSUFFICIENT);
+
+    /* Issue the command.  */
+    status = _ux_host_class_pima_command(pima, &command, UX_HOST_CLASS_PIMA_DATA_PHASE_IN , storage_buffer,
+                                        UX_HOST_CLASS_PIMA_STORAGE_MAX_LENGTH, UX_HOST_CLASS_PIMA_STORAGE_MAX_LENGTH);
+
+    /* Check the result. If the result is OK, the storage info block was read properly. */
+    if (status == UX_SUCCESS)
+    {
+        /* Uncompress the storage descriptor, at least the fixed part.  */
+        _ux_utility_descriptor_parse(storage_buffer,
+                            _ux_system_class_pima_object_structure,
+                            UX_HOST_CLASS_PIMA_OBJECT_ENTRIES,
+                            (UCHAR *) storage);
+
+        /* Copy the storage description field.  Point to the beginning of the storage description string.  */
+        storage_pointer =  storage_buffer + UX_HOST_CLASS_PIMA_STORAGE_VARIABLE_OFFSET;
+
+        /* Get the unicode string length.  */
+        unicode_string_length =  (ULONG) *storage_pointer ;
+
+        /* Copy that string into the storage description field.  */
+        _ux_utility_memory_copy(storage -> ux_host_class_pima_storage_description, storage_pointer, unicode_string_length); /* Use case of memcpy is verified. */ // VULN: unchecked copy size for a copy in a fixed size (256 bytes) buffer (UX_HOST_CLASS_PIMA_STORAGE_MAX_LENGTH used to dynamically allocate storage_buffer is 512 bytes)
+
+        /* Point to the volume label.  */
+        storage_pointer =  storage_buffer + UX_HOST_CLASS_PIMA_STORAGE_VARIABLE_OFFSET + unicode_string_length;
+
+        /* Get the unicode string length.  */
+        unicode_string_length =  (ULONG) *storage_pointer ;
+
+        /* Copy that string into the storage volume label field.  */
+        _ux_utility_memory_copy(storage -> ux_host_class_pima_storage_volume_label, storage_pointer, unicode_string_length); /* Use case of memcpy is verified. */ // VULN: unchecked copy size for a copy in a fixed size (256 bytes) buffer (UX_HOST_CLASS_PIMA_STORAGE_MAX_LENGTH used to dynamically allocate storage_buffer is 512 bytes)
+
+    }
+
+    /* Free the original storage info buffer.  */
+    _ux_utility_memory_free(storage_buffer);
+
+    /* Return completion status.  */
+    return(status);
+}
+```
+
+
+--[ 4 - Affected products
+
+Eclipse ThreadX before version 6.4.0 was affected by the vulnerabilities
+discussed in this advisory. The other bugs in Eclipse ThreadX NetX Duo and USBX
+that we reported will be patched in subsequent releases of Eclipse ThreadX.
+
+
+--[ 5 - Remediation
+
+Eclipse ThreadX maintainers have fixed all vulnerabilities discussed in this
+advisory.
+
+Please check the official Eclipse ThreadX channels for further information
+about fixes.
+
+
+--[ 6 - Disclosure timeline
+
+We reported the vulnerabilities discussed in this advisory to Microsoft in
+December 2023 and early January 2024, via their MSRC Researcher Portal [8].
+For our efforts, we were awarded 7th place in the Top MSRC 2023 Q4 Azure
+Security Researchers Leaderboard [9].
+
+Following the project ownership transfer to the Eclipse Foundation, with
+Microsoft's help, we coordinated with the new maintainers to provide
+vulnerability information and fixes to the ThreadX users' community.
+
+The (simplified) coordinated disclosure timeline follows:
+
+2023-12-01: Reported two vulnerabilities to MSRC.
+2023-12-13: MSRC confirmed our first vulnerability.
+2023-12-14: MSRC confirmed our second vulnerability.
+2023-12-21: Reported other two vulnerabilities to MSRC.
+2023-12-31: Reported another vulnerability to MSRC.
+2024-01-02: Reported other three vulnerabilities to MSRC.
+2024-01-05: MSRC confirmed a vulnerability was fixed in version 6.4.
+2024-01-06: MSRC informed us we made the 2023 Q4 leaderboard!
+2024-01-10: MSRC confirmed another vulnerability was fixed in version 6.4.
+2024-02-10: Asked MSRC for updates on all open reports.
+2024-02-16: Asked the Eclipse Foundation for advice on how to proceed.
+2024-02-20: Eclipse replied they were coordinating with MSRC.
+2024-02-21: MSRC informed us of the ownership transfer to Eclipse.
+2024-02-27: MSRC confirmed a third vulnerability was fixed in version 6.4.
+2024-02-28: Upon MSRC's request, we submitted our reports to Eclipse.
+2024-03-05: Eclipse started creating GitHub advisories for all reports.
+2024-03-13: Provided Eclipse with clarifications on some of the reports.
+2024-03-15: MSRC provided some additional feedback on the transition.
+2024-03-18: Eclipse finished creating GitHub advisories for all reports.
+2024-03-22: MSRC closed the remaining cases after the transition.
+2024-03-25: Eclipse published CVE-2024-2212, CVE-2024-2214, CVE-2024-2452.
+2024-03-29: Provided Eclipse with clarifications on remaining reports.
+2024-04-24: Asked for a status update on the remaining reports.
+2024-04-26: Agreed to declass the remaining reports to standard issues.
+2024-05-02: Sent draft advisory and writeup to MSRC and Eclipse.
+2024-05-28: Published advisory and writeup.
+
+
+--[ 7 - Acknowledgments
+
+We would like to thank MSRC and the Eclipse Foundation (with a special mention
+to Marta Rybczynska who took care of coordinated disclosure after the project
+ownership change) for triaging and fixing the reported vulnerabilities. It was
+a pleasure to work with you!
+
+
+--[ 8 - References
+
+[1] https://eclipse-foundation.blog/2023/11/21/introducing-eclipse-threadx/
+[2] https://github.com/eclipse-threadx/
+[3] https://security.humanativaspa.it/ost2-zephyr-rtos-and-a-bunch-of-cves/
+[4] https://security.humanativaspa.it/multiple-vulnerabilities-in-rt-thread-rtos/
+[5] https://security.humanativaspa.it/multiple-vulnerabilities-in-riot-os/
+[6] https://security.humanativaspa.it/big-update-to-my-semgrep-c-cpp-ruleset/
+[7] https://security.humanativaspa.it/a-collection-of-weggli-patterns-for-c-cpp-vulnerability-research/
+[8] https://msrc.microsoft.com/report/vulnerability
+[9] https://msrc.microsoft.com/blog/2024/01/congratulations-to-the-top-msrc-2023-q4-security-researchers/
+
+
+Copyright (c) 2024 Marco Ivaldi and Humanativa Group. All rights reserved.
