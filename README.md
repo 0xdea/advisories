@@ -43,7 +43,7 @@
 * [**HNS-2024-05-rt-thread**](https://github.com/0xdea/advisories/blob/master/HNS-2024-05-rt-thread.txt). Multiple vulnerabilities in RT-Thread RTOS (CVE-2024-24334, CVE-2024-24335, CVE-2024-25388, CVE-2024-25389, CVE-2024-25390, CVE-2024-25391, CVE-2024-25392, CVE-2024-25393, CVE-2024-25394, CVE-2024-25395).
 
 ## ThreadX
-* **HNS-2024-06-threadx**. TBA (CVE-2024-2212, CVE-2024-2214, CVE-2024-2452).
+* [**HNS-2024-06-threadx**](https://github.com/0xdea/advisories/blob/master/HNS-2024-06-threadx.txt). Multiple vulnerabilities in Eclipse ThreadX (CVE-2024-2212, CVE-2024-2214, CVE-2024-2452).
 
 ## RIOT
 * [**HNS-2024-07-riot**](https://github.com/0xdea/advisories/blob/master/HNS-2024-07-riot.txt). Multiple vulnerabilities in RIOT OS (CVE-2024-31225, CVE-2024-32017, CVE-2024-32018).
