@@ -9,6 +9,8 @@
 >
 > -- Edsger W. Dijkstra
 
+A collection of my public security advisories.
+
 ## Linux
 * [**CVE-2006-1242**](https://www.securityfocus.com/archive/1/427622/100/0/threaded). Linux kernel IP ID information disclosure weakness.
 
