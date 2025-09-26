@@ -11,6 +11,10 @@
 
 A collection of my public security advisories.
 
+See also:  
+https://github.com/hnsecurity/vulns  
+https://hnsecurity.it/blog/author/marco-ivaldi/  
+
 ## Linux
 * [**CVE-2006-1242**](https://www.securityfocus.com/archive/1/427622/100/0/threaded). Linux kernel IP ID information disclosure weakness.
 
