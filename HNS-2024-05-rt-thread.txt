@@ -1,4 +1,4 @@
---[ HNS-2024-05 - HN Security Advisory - https://security.humanativaspa.it/
+--[ HNS-2024-05 - HN Security Advisory - https://hnsecurity.it/
 
 * Title: Multiple vulnerabilities in RT-Thread RTOS
 * OS: RT-Thread <= 5.0.2
@@ -1107,9 +1107,9 @@ thank MITRE for assigning CVE IDs upon our request.
 [2] https://github.com/RT-Thread/rt-thread
 [3] https://savannah.nongnu.org/projects/lwip/
 [4] https://github.com/cxong/tinydir
-[5] https://security.humanativaspa.it/ost2-zephyr-rtos-and-a-bunch-of-cves/
+[5] https://hnsecurity.it/blog/ost2-zephyr-rtos-and-a-bunch-of-cves/
 [6] https://github.com/0xdea/semgrep-rules
-[7] https://security.humanativaspa.it/big-update-to-my-semgrep-c-cpp-ruleset/
+[7] https://hnsecurity.it/blog/big-update-to-my-semgrep-c-cpp-ruleset/
 [8] https://github.com/search?o=desc&q=author%3A0xdea+rt-thread&s=created&type=issues
 [9] https://github.com/RT-Thread/rt-thread/issues/8250
 
