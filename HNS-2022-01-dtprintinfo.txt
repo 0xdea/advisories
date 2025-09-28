@@ -1,4 +1,4 @@
---[ HNS-2022-01 - HN Security Advisory - https://security.humanativaspa.it/
+--[ HNS-2022-01 - HN Security Advisory - https://hnsecurity.it/
 
 * Title: Multiple vulnerabilities in Solaris dtprintinfo and libXm/libXpm
 * Products: Common Desktop Environment 1.6, Motif 2.1, X.Org libXpm < 3.5.15
