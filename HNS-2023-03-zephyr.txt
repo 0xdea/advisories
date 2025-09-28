@@ -1,4 +1,4 @@
---[ HNS-2023-03 - HN Security Advisory - https://security.humanativaspa.it/
+--[ HNS-2023-03 - HN Security Advisory - https://hnsecurity.it/
 
 * Title: Multiple vulnerabilities in Zephyr RTOS
 * OS: Zephyr <= 3.4.0, except for:
