@@ -1,4 +1,4 @@
---[ HNS-2024-06 - HN Security Advisory - https://security.humanativaspa.it/
+--[ HNS-2024-06 - HN Security Advisory - https://hnsecurity.it/
 
 * Title: Multiple vulnerabilities in Eclipse ThreadX
 * OS: Eclipse ThreadX < 6.4.0
@@ -725,11 +725,11 @@ a pleasure to work with you!
 
 [1] https://eclipse-foundation.blog/2023/11/21/introducing-eclipse-threadx/
 [2] https://github.com/eclipse-threadx/
-[3] https://security.humanativaspa.it/ost2-zephyr-rtos-and-a-bunch-of-cves/
-[4] https://security.humanativaspa.it/multiple-vulnerabilities-in-rt-thread-rtos/
-[5] https://security.humanativaspa.it/multiple-vulnerabilities-in-riot-os/
-[6] https://security.humanativaspa.it/big-update-to-my-semgrep-c-cpp-ruleset/
-[7] https://security.humanativaspa.it/a-collection-of-weggli-patterns-for-c-cpp-vulnerability-research/
+[3] https://hnsecurity.it/blog/ost2-zephyr-rtos-and-a-bunch-of-cves/
+[4] https://hnsecurity.it/blog/multiple-vulnerabilities-in-rt-thread-rtos/
+[5] https://hnsecurity.it/blog/multiple-vulnerabilities-in-riot-os/
+[6] https://hnsecurity.it/blog/big-update-to-my-semgrep-c-cpp-ruleset/
+[7] https://hnsecurity.it/blog/a-collection-of-weggli-patterns-for-c-cpp-vulnerability-research/
 [8] https://msrc.microsoft.com/report/vulnerability
 [9] https://msrc.microsoft.com/blog/2024/01/congratulations-to-the-top-msrc-2023-q4-security-researchers/
 
