@@ -1,4 +1,4 @@
---[ HNS-2023-04 - HN Security Advisory - https://security.humanativaspa.it/
+--[ HNS-2023-04 - HN Security Advisory - https://hnsecurity.it/
 
 * Title: Buffer overflow vulnerabilities with long path names in TinyDir
 * Product: TinyDir <= 1.2.5
