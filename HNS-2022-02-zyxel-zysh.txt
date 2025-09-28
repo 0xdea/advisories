@@ -1,4 +1,4 @@
---[ HNS-2022-02 - HN Security Advisory - https://security.humanativaspa.it/
+--[ HNS-2022-02 - HN Security Advisory - https://hnsecurity.it/
 
 * Title: Multiple vulnerabilities in Zyxel zysh
 * Products: Zyxel firewalls, AP controllers, and APs
@@ -911,7 +911,7 @@ We have not checked the effectiveness of the fixes.
 --[ 9 - References
 
 [0] https://www.zyxel.com/
-[1] https://security.humanativaspa.it/tag/zyxel/
+[1] https://hnsecurity.it/blog/tag/zyxel/
 [2] https://www.dropbox.com/s/kvm5xwxqfrwge0t/USG20-VPN_5.10.zip?dl=1
 [3] https://en.wikipedia.org/wiki/MIPS_architecture
 [4] https://gtfobins.github.io/gtfobins/tcpdump/
