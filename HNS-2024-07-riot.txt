@@ -1,4 +1,4 @@
---[ HNS-2024-07 - HN Security Advisory - https://security.humanativaspa.it/
+--[ HNS-2024-07 - HN Security Advisory - https://hnsecurity.it/
 
 * Title: Multiple vulnerabilities in RIOT OS
 * OS: RIOT <= 2024.01
@@ -942,10 +942,10 @@ appreciated working with them!
 
 [1] https://www.riot-os.org/
 [2] https://github.com/RIOT-OS/RIOT
-[3] https://security.humanativaspa.it/ost2-zephyr-rtos-and-a-bunch-of-cves/
-[4] https://security.humanativaspa.it/multiple-vulnerabilities-in-rt-thread-rtos/
-[5] https://security.humanativaspa.it/big-update-to-my-semgrep-c-cpp-ruleset/
-[6] https://security.humanativaspa.it/a-collection-of-weggli-patterns-for-c-cpp-vulnerability-research/
+[3] https://hnsecurity.it/blog/ost2-zephyr-rtos-and-a-bunch-of-cves/
+[4] https://hnsecurity.it/blog/multiple-vulnerabilities-in-rt-thread-rtos/
+[5] https://hnsecurity.it/blog/big-update-to-my-semgrep-c-cpp-ruleset/
+[6] https://hnsecurity.it/blog/a-collection-of-weggli-patterns-for-c-cpp-vulnerability-research/
 [7] https://github.com/gkostka/lwext4/blob/58bcf89a121b72d4fb66334f1693d3b30e4cb9c5/src/ext4.c#L75
 [8] https://docs.github.com/en/code-security/security-advisories
 
