@@ -1,4 +1,4 @@
---[ HNS-2025-10 - HN Security Advisory - https://security.humanativaspa.it/
+--[ HNS-2025-10 - HN Security Advisory - https://hnsecurity.it/
 
 * Title: Local privilege escalation via Zyxel fermion-wrapper
 * Product: USG FLEX H Series
@@ -11,7 +11,7 @@
 * HN Security URLs:
   https://github.com/hnsecurity/vulns/blob/main/HNS-2025-10-zyxel-fermion.txt
   https://github.com/0xdea/exploits/blob/master/zyxel/raptor_fermion
-  https://security.humanativaspa.it/local-privilege-escalation-on-zyxel-usg-flex-h-series-cve-2025-1731
+  https://hnsecurity.it/blog/local-privilege-escalation-on-zyxel-usg-flex-h-series-cve-2025-1731
 * Vendor URLs:
   https://www.zyxel.com/global/en/support/security-advisories/zyxel-security-advisory-for-incorrect-permission-assignment-and-improper-privilege-management-vulnerabilities-in-usg-flex-h-series-firewalls-04-22-2025
   https://community.zyxel.com/en/discussion/28988/usg-flex-h-series-v1-32patch-0-firmware-release
@@ -353,11 +353,11 @@ involving us in his research and for kindly providing access to his USG FLEX
 --[ 8 - References
 
 [1] https://support.zyxel.eu/hc/en-us/sections/17702103398546-Series-USG-FLEX-H
-[2] https://security.humanativaspa.it/tag/zyxel/
+[2] https://hnsecurity.it/blog/tag/zyxel/
 [3] https://0xdeadc0de.xyz/blog/cve-2025-1731_cve-2025-1732
 [4] https://www.zdnet.com/article/oracles-unbreakable-toy-story/
-[5] https://security.humanativaspa.it/streamlining-vulnerability-research-with-ida-pro-and-rust/
-[6] https://security.humanativaspa.it/aiding-reverse-engineering-with-rust-and-a-local-llm/
+[5] https://hnsecurity.it/blog/streamlining-vulnerability-research-with-ida-pro-and-rust/
+[6] https://hnsecurity.it/blog/aiding-reverse-engineering-with-rust-and-a-local-llm/
 [7] https://github.com/0xdea/haruspex
 [8] https://github.com/0xdea/oneiromancer
 [9] https://github.com/0xdea/exploits/blob/master/zyxel/raptor_fermion
