@@ -12,6 +12,8 @@
 
 A collection of my public security advisories.
 
+![](.img/bugs.jpg)
+
 ## See also
 
 * <https://github.com/hnsecurity/vulns>
