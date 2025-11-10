@@ -12,7 +12,7 @@
 
 A collection of my public security advisories.
 
-![](.img/bugs.jpg)
+![](https://raw.githubusercontent.com/0xdea/advisories/master/.img/bugs.jpg)
 
 ## See also
 
